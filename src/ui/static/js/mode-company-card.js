@@ -15,7 +15,7 @@ var CardView = (function () {
   /* ── Welcome messages per mode ── */
   var WELCOME = {
     instant: '업무를 지시해주세요. CEO가 팀을 구성하고 실행합니다.',
-    builder: '나만의 팀 모드입니다. \'새 팀 만들기\', \'에이전트 추가\', \'저장된 팀 불러오기\' 중 선택하세요.',
+    builder: '나만의 방식 모드입니다. 분석 전략을 설계하고 저장할 수 있습니다.',
   };
 
   /* ── Mode titles for header ── */
@@ -73,10 +73,13 @@ var CardView = (function () {
     // 인스턴트 + 빌더 모두 풀와이드 채팅 (canvas 숨김)
     if (app) app.classList.add('chat-fullwidth');
 
-    // 모드별 메시지 컨테이너 전환
+    // 모드별 메시지 컨테이너 전환 + 플레이스홀더 복원
     if (_chatPanel) {
       _chatPanel.switchMode(mode);
       _chatPanel.toggle(true);
+      _chatPanel.setInputPlaceholder(
+        mode === 'builder' ? '분석 방식을 설계해보세요...' : '업무를 지시하세요...'
+      );
     }
 
     // 실행 중인 모드로 복귀하면 UI 복원
@@ -128,7 +131,7 @@ var CardView = (function () {
     if (_chatPanel) {
       _chatPanel.addMessage(WELCOME[mode] || '', 'system', { welcome: true });
       _chatPanel.setInputPlaceholder(
-        mode === 'builder' ? '팀 설계를 요청하세요...' : '업무를 지시하세요...'
+        mode === 'builder' ? '분석 방식을 설계해보세요...' : '업무를 지시하세요...'
       );
 
       // 출력 형식 선택 (인스턴트 + 빌더 공통)
@@ -145,20 +148,20 @@ var CardView = (function () {
       // Add action buttons for builder mode
       if (mode === 'builder') {
         _chatPanel.addActionButtons([
-          { label: '새 팀 만들기', icon: '🏗️', action: function () {
-            _chatPanel.addMessage('어떤 팀을 만들까요? 목적과 분야를 알려주세요.', 'system');
-            _chatPanel.setInputPlaceholder('예: 이커머스 마케팅 팀을 만들어줘');
+          { label: '일하는 방식 만들기', icon: '🏗️', action: function () {
+            _chatPanel.addMessage('어떤 분석 방식을 만들까요? 목적과 분야를 알려주세요.', 'system');
+            _chatPanel.setInputPlaceholder('예: AI 업계 동향 분석 방식을 만들어줘');
           }},
-          { label: '저장된 팀 불러오기', icon: '📂', action: function () {
+          { label: '저장된 방식 불러오기', icon: '📂', action: function () {
             CardBuilder.listCompanies();
-            _chatPanel.addMessage('저장된 팀 목록을 조회 중입니다...', 'system');
+            _chatPanel.addMessage('저장된 방식 목록을 조회 중입니다...', 'system');
           }},
-          { label: '에이전트 추가', icon: '➕', action: function () {
-            _chatPanel.addMessage('어떤 역할의 에이전트를 추가할까요?', 'system');
-            _chatPanel.setInputPlaceholder('예: SNS 마케팅 분석가를 추가해줘');
+          { label: '관점 추가', icon: '➕', action: function () {
+            _chatPanel.addMessage('어떤 관점을 추가할까요?', 'system');
+            _chatPanel.setInputPlaceholder('예: 경쟁사 비교 관점을 추가해줘');
           }},
-          { label: '현재 팀 저장', icon: '💾', action: function () {
-            var name = prompt('팀 이름을 입력하세요:');
+          { label: '현재 방식 저장', icon: '💾', action: function () {
+            var name = prompt('방식 이름을 입력하세요:');
             if (name) {
               CardBuilder.saveCurrentTeam(name, '');
             }
@@ -234,7 +237,7 @@ var CardView = (function () {
     if (!title) return;
     var accentMap = {
       instant: ['AI ', 'Company'],
-      builder: ['나만의 ', '팀'],
+      builder: ['나만의 ', '방식'],
       discussion: ['AI ', 'Discussion'],
       foresight: ['', 'Foresight'],
       persona: ['Persona ', 'Workshop'],
@@ -575,7 +578,7 @@ var CardView = (function () {
         }
         // Restore builder mode placeholder after execution
         if (_activeMode === 'builder' && _chatPanel) {
-          _chatPanel.setInputPlaceholder('이 팀에게 업무를 지시하세요...');
+          _chatPanel.setInputPlaceholder('이 방식으로 업무를 지시하세요...');
         }
       },
       onError: function (msg) {
