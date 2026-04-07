@@ -34,11 +34,25 @@ class CEOAgent(BaseAgent):
     def invoke(self, state: dict) -> dict:
         raise NotImplementedError("Use specific methods: get_routing_decision, confirm_plan")
 
+    # CEO 라우팅/질문 단계에서 제외할 pre_context 키
+    # strategy는 싱글 세션 실행 단계에서만 사용 (CEO 프롬프트에 주입하면 latency 폭증)
+    _PRE_CONTEXT_EXCLUDE = frozenset({
+        "background", "escalation_policy", "default_answer", "domain_answers",
+        "strategy", "output_format", "previous_report_path", "output_mode",
+    })
+
     @staticmethod
     def _format_pre_context_block(state: dict) -> str:
-        """Format pre_context into a prompt block for scheduled execution."""
+        """Format pre_context into a prompt block for scheduled execution.
+
+        strategy는 제외 — CEO 라우팅/질문은 지시사항만 인식하면 됨.
+        전략은 single_session 노드에서 실행 시점에 사용.
+        """
         pre_ctx = state.get("pre_context", {})
         if not pre_ctx:
+            return ""
+        # strategy만 있는 경우 (나만의 방식 모드) → 블록 생략
+        if set(pre_ctx.keys()) <= CEOAgent._PRE_CONTEXT_EXCLUDE:
             return ""
         lines = ["## 사전 제공 맥락 (Scheduled Mode)"]
         if pre_ctx.get("background"):
@@ -48,7 +62,7 @@ class CEOAgent(BaseAgent):
         if pre_ctx.get("default_answer"):
             lines.append(f"- 기본 답변 방침: {pre_ctx['default_answer']}")
         for key, value in pre_ctx.items():
-            if key not in ("background", "escalation_policy", "default_answer", "domain_answers"):
+            if key not in CEOAgent._PRE_CONTEXT_EXCLUDE:
                 lines.append(f"- {key}: {value}")
         return "\n".join(lines) + "\n"
 

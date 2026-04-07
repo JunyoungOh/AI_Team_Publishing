@@ -50,8 +50,12 @@ def slice_for_ceo(state: dict) -> dict:
     if state.get("ceo_plan_confirmation"):
         result["ceo_plan_confirmation"] = state["ceo_plan_confirmation"]
     # Include pre_context for scheduled execution mode
+    # strategy는 CEO에게 전달하지 않음 — 라우팅/질문은 지시사항만으로 수행
     if state.get("pre_context"):
-        result["pre_context"] = state["pre_context"]
+        pre_ctx = state["pre_context"]
+        slim = {k: v for k, v in pre_ctx.items() if k != "strategy"}
+        if slim:
+            result["pre_context"] = slim
     # Include iteration_counts for structured rejection history
     if state.get("iteration_counts"):
         result["iteration_counts"] = state["iteration_counts"]

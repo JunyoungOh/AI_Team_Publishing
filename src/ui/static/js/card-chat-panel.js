@@ -129,10 +129,18 @@ class CardChatPanel {
     const msg = document.createElement('div');
     msg.className = `cc-message cc-message-${type}`;
     if (opts.welcome) msg.classList.add('cc-welcome');
-    if (opts.preserveNewlines) {
+    // 마크다운 렌더링 (marked.js — Secretary/builder와 동일 패턴, 백엔드 생성 콘텐츠)
+    if (opts.markdown && typeof marked !== 'undefined') {
+      try {
+        msg.innerHTML = marked.parse(text); // eslint-disable-line no-unsanitized/property
+      } catch (_) { msg.textContent = text; }
+      msg.classList.add('cc-markdown');
+    } else if (opts.preserveNewlines) {
       msg.style.whiteSpace = 'pre-wrap';
+      msg.textContent = text;
+    } else {
+      msg.textContent = text;
     }
-    msg.textContent = text;
     this.messagesEl.appendChild(msg);
     this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
   }

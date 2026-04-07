@@ -88,6 +88,16 @@ def _route_or_error(next_node: str):
     return router
 
 
+def _route_after_intake(state: dict) -> str:
+    """싱글 세션 모드: CEO 라우팅 스킵 → 바로 질문 생성."""
+    if state.get("phase") == "error":
+        return "error_terminal"
+    from src.config.settings import get_settings
+    if get_settings().use_single_session:
+        return "ceo_questions"
+    return "ceo_route"
+
+
 def _route_after_user_answers(state: dict) -> str:
     """싱글 세션 모드 vs 레거시 파이프라인 분기."""
     if state.get("phase") == "error":
@@ -133,7 +143,7 @@ def _build_engine() -> PipelineEngine:
     # P-E-S-R 루프는 worker_execution 내부에서 처리됨
     # report_review/ceo_report_revise 제거 — Reviewer가 루프 내에서 이미 검증 완료
     engine.set_entry("intake")
-    engine.set_router("intake", _route_or_error("ceo_route"))
+    engine.set_router("intake", _route_after_intake)
     engine.set_router("ceo_route", _route_or_error("ceo_questions"))
     engine.set_router("ceo_questions", _route_or_error("await_user_answers"))
     engine.set_router("await_user_answers", _route_after_user_answers)

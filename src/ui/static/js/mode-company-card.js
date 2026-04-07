@@ -15,8 +15,13 @@ var CardView = (function () {
   /* ── Welcome messages per mode ── */
   var WELCOME = {
     instant: '업무를 지시해주세요. CEO가 팀을 구성하고 실행합니다.',
-    builder: '나만의 방식 모드입니다. 분석 전략을 설계하고 저장할 수 있습니다.',
+    'builder-create': '새로운 분석 방식을 설계합니다. 어떤 분석이 필요한지 알려주세요.',
+    'builder-saved': '',
   };
+
+  /* ── Builder sub-tab state ── */
+  var _builderSubTab = 'create'; // 'create' | 'saved'
+  var _builderTabBarEl = null;
 
   /* ── Mode titles for header ── */
   var _modeTitles = {
@@ -73,13 +78,26 @@ var CardView = (function () {
     // 인스턴트 + 빌더 모두 풀와이드 채팅 (canvas 숨김)
     if (app) app.classList.add('chat-fullwidth');
 
+    // builder 모드: 하위 탭 기반 모드 키로 전환
+    var chatMode = mode;
+    if (mode === 'builder') {
+      chatMode = 'builder-' + _builderSubTab;
+      _showBuilderTabs();
+    } else {
+      _hideBuilderTabs();
+    }
+
     // 모드별 메시지 컨테이너 전환 + 플레이스홀더 복원
     if (_chatPanel) {
-      _chatPanel.switchMode(mode);
+      _chatPanel.switchMode(chatMode);
       _chatPanel.toggle(true);
-      _chatPanel.setInputPlaceholder(
-        mode === 'builder' ? '분석 방식을 설계해보세요...' : '업무를 지시하세요...'
-      );
+      if (chatMode === 'builder-create') {
+        _chatPanel.setInputPlaceholder('분석 방식을 설계해보세요...');
+      } else if (chatMode === 'builder-saved') {
+        _chatPanel.setInputPlaceholder('이 방식으로 업무를 지시하세요...');
+      } else {
+        _chatPanel.setInputPlaceholder('업무를 지시하세요...');
+      }
     }
 
     // 실행 중인 모드로 복귀하면 UI 복원
@@ -102,40 +120,29 @@ var CardView = (function () {
 
     // 이미 초기화된 모드면 컨텐츠 유지 (재초기화 하지 않음)
     if (_chatPanel && _chatPanel.messagesEl.childNodes.length > 0) {
-      // Connect builder WS if needed
-      if (mode === 'builder') {
-        CardBuilder.connect(_chatPanel);
-      }
+      if (mode === 'builder') CardBuilder.connect(_chatPanel);
       _updateHeaderForMode(mode);
       return;
     }
 
     // 첫 진입: 초기화
     CardEventHandler.reset();
-
-    if (_editor) {
-      _editor.clear();
-    }
+    if (_editor) _editor.clear();
     _nodeMap = {};
 
-    // Connect/disconnect builder WS based on mode
     if (mode === 'builder') {
       CardBuilder.connect(_chatPanel);
     } else {
       CardBuilder.disconnect();
     }
-
     CardEditor.close();
 
     // Show welcome for this mode
     if (_chatPanel) {
-      _chatPanel.addMessage(WELCOME[mode] || '', 'system', { welcome: true });
-      _chatPanel.setInputPlaceholder(
-        mode === 'builder' ? '분석 방식을 설계해보세요...' : '업무를 지시하세요...'
-      );
+      var welcomeMsg = WELCOME[chatMode] || WELCOME[mode] || '';
+      if (welcomeMsg) _chatPanel.addMessage(welcomeMsg, 'system', { welcome: true });
 
-      // 출력 형식 선택 (인스턴트 + 빌더 공통)
-      if (mode === 'instant' || mode === 'builder') {
+      if (mode === 'instant') {
         _chatPanel.showFormatSelector([
           { id: 'html', label: 'HTML', icon: '📄', default: true },
           { id: 'pdf', label: 'PDF', icon: '📑' },
@@ -145,28 +152,9 @@ var CardView = (function () {
         ]);
       }
 
-      // Add action buttons for builder mode
-      if (mode === 'builder') {
-        _chatPanel.addActionButtons([
-          { label: '일하는 방식 만들기', icon: '🏗️', action: function () {
-            _chatPanel.addMessage('어떤 분석 방식을 만들까요? 목적과 분야를 알려주세요.', 'system');
-            _chatPanel.setInputPlaceholder('예: AI 업계 동향 분석 방식을 만들어줘');
-          }},
-          { label: '저장된 방식 불러오기', icon: '📂', action: function () {
-            CardBuilder.listCompanies();
-            _chatPanel.addMessage('저장된 방식 목록을 조회 중입니다...', 'system');
-          }},
-          { label: '관점 추가', icon: '➕', action: function () {
-            _chatPanel.addMessage('어떤 관점을 추가할까요?', 'system');
-            _chatPanel.setInputPlaceholder('예: 경쟁사 비교 관점을 추가해줘');
-          }},
-          { label: '현재 방식 저장', icon: '💾', action: function () {
-            var name = prompt('방식 이름을 입력하세요:');
-            if (name) {
-              CardBuilder.saveCurrentTeam(name, '');
-            }
-          }},
-        ]);
+      // builder-saved 탭: 저장된 방식 목록 즉시 표시
+      if (chatMode === 'builder-saved') {
+        _renderSavedStrategyList();
       }
     }
 
@@ -175,6 +163,102 @@ var CardView = (function () {
     if (stopBtn) stopBtn.style.display = 'none';
 
     _updateHeaderForMode(mode);
+  }
+
+  /* ── Builder Sub-tabs ── */
+
+  function _showBuilderTabs() {
+    if (_builderTabBarEl) {
+      _builderTabBarEl.style.display = '';
+      _builderTabBarEl.querySelectorAll('.builder-tab').forEach(function (el) {
+        el.classList.toggle('active', el.dataset.tab === _builderSubTab);
+      });
+      return;
+    }
+    var chatEl = document.getElementById('card-chat');
+    if (!chatEl) return;
+    var bar = document.createElement('div');
+    bar.className = 'builder-tab-bar';
+    var tabs = [
+      { id: 'create', label: '새 방식 만들기', icon: '🏗️' },
+      { id: 'saved', label: '저장된 방식', icon: '📂' },
+    ];
+    tabs.forEach(function (t) {
+      var btn = document.createElement('button');
+      btn.className = 'builder-tab' + (t.id === _builderSubTab ? ' active' : '');
+      btn.dataset.tab = t.id;
+      btn.textContent = t.icon + ' ' + t.label;
+      btn.addEventListener('click', function () { _switchBuilderSubTab(t.id); });
+      bar.appendChild(btn);
+    });
+    var messagesEl = chatEl.querySelector('.cc-messages') || chatEl.firstChild;
+    chatEl.insertBefore(bar, messagesEl);
+    _builderTabBarEl = bar;
+  }
+
+  function _hideBuilderTabs() {
+    if (_builderTabBarEl) _builderTabBarEl.style.display = 'none';
+  }
+
+  function _switchBuilderSubTab(tab) {
+    if (_builderSubTab === tab) return;
+    _builderSubTab = tab;
+    if (_builderTabBarEl) {
+      _builderTabBarEl.querySelectorAll('.builder-tab').forEach(function (el) {
+        el.classList.toggle('active', el.dataset.tab === tab);
+      });
+    }
+    var chatMode = 'builder-' + tab;
+    if (_chatPanel) {
+      _chatPanel.switchMode(chatMode);
+      if (tab === 'create') {
+        _chatPanel.setInputPlaceholder('분석 방식을 설계해보세요...');
+      } else {
+        _chatPanel.setInputPlaceholder('이 방식으로 업무를 지시하세요...');
+      }
+      if (tab === 'saved') {
+        // 탭 전환할 때마다 목록을 새로 렌더링 (새로 저장된 방식 반영)
+        while (_chatPanel.messagesEl.firstChild) _chatPanel.messagesEl.removeChild(_chatPanel.messagesEl.firstChild);
+        _renderSavedStrategyList();
+        // 전략 초기화 (이전 탭의 전략이 남아있지 않도록)
+        if (CardBuilder.loadAndDisplayStrategy) CardBuilder.loadAndDisplayStrategy(null);
+      }
+      if (_chatPanel.messagesEl.childNodes.length === 0) {
+        var welcomeMsg = WELCOME[chatMode] || '';
+        if (welcomeMsg) _chatPanel.addMessage(welcomeMsg, 'system', { welcome: true });
+      }
+    }
+  }
+
+  function _renderSavedStrategyList() {
+    if (!_chatPanel) return;
+    var strategies = CardBuilder.getStrategies ? CardBuilder.getStrategies() : [];
+    if (strategies.length === 0) {
+      _chatPanel.addMessage('저장된 방식이 없습니다. "새 방식 만들기" 탭에서 방식을 설계하고 저장하세요.', 'system');
+      return;
+    }
+    _chatPanel.addMessage('저장된 방식 중 하나를 선택하세요:', 'system');
+    var btns = strategies.map(function (s) {
+      return {
+        label: s.name || '방식',
+        icon: '📊',
+        action: function () {
+          CardBuilder.loadAndDisplayStrategy(s);
+          if (_chatPanel) {
+            _chatPanel.addMessage('✅ "' + (s.name || '방식') + '" 방식이 로드되었습니다.', 'system');
+            _chatPanel.showFormatSelector([
+              { id: 'html', label: 'HTML', icon: '📄', default: true },
+              { id: 'pdf', label: 'PDF', icon: '📑' },
+              { id: 'markdown', label: 'Markdown', icon: '📝' },
+              { id: 'csv', label: 'CSV', icon: '📊' },
+              { id: 'json', label: 'JSON', icon: '{}' },
+            ]);
+            _chatPanel.setInputPlaceholder('이 방식으로 업무를 지시하세요...');
+          }
+        },
+      };
+    });
+    _chatPanel.addActionButtons(btns);
   }
 
   function _hideCompanyUI() {
@@ -349,67 +433,42 @@ var CardView = (function () {
         }
       }
     } else if (_activeMode === 'builder') {
-      var currentStrategy = CardBuilder.getCurrentStrategy();
-      var canvasAgents = CardBuilder.getCanvasAgents();
-
-      if (currentStrategy && !_running) {
-        // 전략이 로드됨 → 이 전략으로 싱글 세션 실행
-        _startStrategyExecution(text, currentStrategy);
-      } else if (canvasAgents && canvasAgents.length > 0 && !_running) {
-        // Team is loaded — validate and execute task with this team
-        var teamId = CardBuilder.getCurrentCompanyId();
-        CardBuilder.validateTask(text, teamId, function (result) {
-          if (result.fit) {
-            _startTeamExecution(text, teamId);
-          }
-        });
-      } else if (_running) {
-        // Running — interrupt response
+      if (_running) {
+        // 실행 중 → interrupt response
         _sendWS({ type: 'interrupt_response', data: text });
         if (_chatPanel) {
           _chatPanel.addMessage('🔄 답변을 확인했습니다. 정보를 수집하고 보고서를 작성 중입니다...', 'system');
           _chatPanel.setInputPlaceholder('작업 진행 중...');
           _chatPanel.showThinking();
         }
-      } else {
-        // No strategy loaded — 기존 전략 매칭 시도 or 전략 생성 안내
-        var strategies = CardBuilder.getStrategies ? CardBuilder.getStrategies() : [];
-        if (strategies.length > 0) {
-          // 저장된 전략이 있으면 목록을 보여주고 선택하도록 안내
-          if (_chatPanel) {
-            _chatPanel.addMessage('📋 저장된 전략이 ' + strategies.length + '개 있습니다. 전략을 선택하거나 새로 만들어주세요:', 'system');
-            var btns = strategies.map(function (s) {
-              return {
-                label: s.name || '전략',
-                icon: '📊',
-                action: function () {
-                  CardBuilder.loadAndDisplayStrategy(s);
-                  if (_chatPanel) _chatPanel.addMessage('✅ "' + s.name + '" 전략이 로드되었습니다. 업무를 지시하세요.', 'system');
-                },
-              };
-            });
-            btns.push({
-              label: '새 전략 만들기',
-              icon: '🏗️',
-              action: function () {
-                if (_chatPanel) {
-                  _chatPanel.addMessage('🏗️ 새 전략을 생성 중입니다...', 'system');
-                  _chatPanel.showThinking();
-                  _chatPanel.setInputPlaceholder('전략 생성 중...');
-                }
-                CardBuilder.sendMessage('다음 작업을 위한 분석 전략을 설계해줘: ' + text);
-              },
-            });
-            _chatPanel.addActionButtons(btns);
-          }
+        return;
+      }
+
+      if (_builderSubTab === 'create') {
+        // 새 방식 만들기 탭
+        var createStrategy = CardBuilder.getCurrentStrategy();
+        if (createStrategy) {
+          // 방식이 설계됨 → 이 방식으로 바로 실행 테스트
+          _startStrategyExecution(text, createStrategy);
         } else {
-          // 전략이 하나도 없으면 전략 생성부터 안내
+          // 방식 설계 대화 → builder agent에게 전달
           if (_chatPanel) {
-            _chatPanel.addMessage('🏗️ 등록된 분석 전략이 없습니다. 이 작업을 위한 전략을 생성 중입니다...', 'system');
             _chatPanel.showThinking();
-            _chatPanel.setInputPlaceholder('전략 생성 중...');
+            _chatPanel.setInputPlaceholder('방식 설계 중...');
           }
-          CardBuilder.sendMessage('다음 작업을 수행하기 위한 분석 전략을 설계해줘: ' + text);
+          CardBuilder.sendMessage(text);
+        }
+      } else if (_builderSubTab === 'saved') {
+        // 저장된 방식 탭
+        var savedStrategy = CardBuilder.getCurrentStrategy();
+        if (savedStrategy) {
+          // 방식이 로드됨 → 이 방식으로 실행
+          _startStrategyExecution(text, savedStrategy);
+        } else {
+          // 방식 미선택 → 안내
+          if (_chatPanel) {
+            _chatPanel.addMessage('먼저 위의 목록에서 방식을 선택하세요.', 'system');
+          }
         }
       }
     }
@@ -420,7 +479,7 @@ var CardView = (function () {
     CardEventHandler.reset();
     document.getElementById('card-stop-btn').style.display = '';
     if (_chatPanel) {
-      _chatPanel.addMessage('🚀 "' + (strategy.name || '전략') + '" 프레임워크로 분석을 시작합니다...', 'system');
+      _chatPanel.addMessage('🚀 "' + (strategy.name || '방식') + '" 프레임워크로 분석을 시작합니다...', 'system');
       _chatPanel.showThinking();
       _chatPanel.setInputPlaceholder('작업 진행 중...');
     }
@@ -563,7 +622,7 @@ var CardView = (function () {
         if (_chatPanel) {
           var q = (data && data.questions) || (data && data.content) || '질문이 있습니다. 응답해 주세요.';
           if (Array.isArray(q)) q = q.join('\n\n');
-          _chatPanel.addMessage('❓ ' + q + '\n\n아래에 답변을 입력해주세요.', 'system', { interrupt: true, preserveNewlines: true });
+          _chatPanel.addMessage(q + '\n\n아래에 답변을 입력해주세요.', 'system', { interrupt: true, markdown: true });
           _chatPanel.setInputPlaceholder('응답을 입력하세요...');
         }
       },
@@ -576,9 +635,17 @@ var CardView = (function () {
         if (data && data.report_path && _chatPanel) {
           _chatPanel.addReportLink(data.report_path, data.local_path || '');
         }
-        // Restore builder mode placeholder after execution
+        // Restore builder mode: placeholder + quick action buttons
         if (_activeMode === 'builder' && _chatPanel) {
           _chatPanel.setInputPlaceholder('이 방식으로 업무를 지시하세요...');
+          _chatPanel.addActionButtons([
+            { label: '다른 업무 지시하기', icon: '🚀', action: function () {
+              _chatPanel.setInputPlaceholder('이 방식으로 업무를 지시하세요...');
+            }},
+            { label: '저장된 방식 불러오기', icon: '📂', action: function () {
+              CardBuilder.showStrategyList();
+            }},
+          ]);
         }
       },
       onError: function (msg) {

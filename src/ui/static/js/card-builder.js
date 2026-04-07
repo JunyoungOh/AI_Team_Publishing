@@ -22,6 +22,8 @@ var CardBuilder = (function () {
   var _currentStrategyId = null;
   var _currentStrategy = null; // loaded strategy data
   var _useStrategyMode = true; // 싱글 세션 모드에서는 항상 전략 설계
+  var _pendingEditMode = false; // 수정 요청 대기 플래그
+  var _initialStrategyBtnAdded = false; // 초기 저장된 방식 버튼 추가 여부
 
   /* ── WebSocket ── */
 
@@ -121,11 +123,11 @@ var CardBuilder = (function () {
       _renderSidebarStrategyList();
     } else if (type === 'strategy_saved') {
       _currentStrategyId = data.id || null;
-      if (_chatPanel) _chatPanel.addMessage('💾 전략이 저장되었습니다: ' + (data.name || data.id), 'system');
+      if (_chatPanel) _chatPanel.addMessage('💾 방식이 저장되었습니다: ' + (data.name || data.id), 'system');
     } else if (type === 'strategy_loaded') {
       _displayStrategyCards(data);
     } else if (type === 'strategy_deleted') {
-      if (_chatPanel) _chatPanel.addMessage('🗑️ 전략이 삭제되었습니다.', 'system');
+      if (_chatPanel) _chatPanel.addMessage('🗑️ 방식이 삭제되었습니다.', 'system');
     } else if (type === 'error') {
       if (_chatPanel) _chatPanel.addMessage('❌ ' + (data.message || '오류'), 'system');
     }
@@ -140,6 +142,7 @@ var CardBuilder = (function () {
       _streamBuffer = '';
       _streamEl = document.createElement('div');
       _streamEl.className = 'cc-message cc-message-system';
+      _streamEl.id = 'builder-stream-msg';
       _chatPanel.messagesEl.appendChild(_streamEl);
     }
 
@@ -149,13 +152,22 @@ var CardBuilder = (function () {
     var displayText = _streamBuffer.replace(/```team_json[\s\S]*?```/g, '').trim();
     // Also strip trailing ``` if team_json block is still being streamed
     displayText = displayText.replace(/```team_json[\s\S]*/g, '').trim();
-    _streamEl.textContent = displayText;
+    // 마크다운 렌더링 — marked.js (Secretary/Discussion과 동일 패턴, 백엔드 생성 콘텐츠)
+    if (typeof marked !== 'undefined') {
+      try { _streamEl.innerHTML = marked.parse(displayText); } catch (_) { _streamEl.textContent = displayText; } // eslint-disable-line no-unsanitized/property
+    } else {
+      _streamEl.textContent = displayText;
+    }
     _chatPanel.messagesEl.scrollTop = _chatPanel.messagesEl.scrollHeight;
 
     if (data.done) {
       // Final cleanup — remove team/strategy JSON blocks
       displayText = _streamBuffer.replace(/```(?:team_json|strategy_json)[\s\S]*?```/g, '').trim();
-      _streamEl.textContent = displayText;
+      if (typeof marked !== 'undefined') {
+        try { _streamEl.innerHTML = marked.parse(displayText); } catch (_) { _streamEl.textContent = displayText; } // eslint-disable-line no-unsanitized/property
+      } else {
+        _streamEl.textContent = displayText;
+      }
       _streamEl = null;
       _streamBuffer = '';
       // thinking indicator 제거 + placeholder 복원
@@ -189,55 +201,61 @@ var CardBuilder = (function () {
   function _handleStrategy(data) {
     _currentStrategy = data;
     _displayStrategyCards(data);
+    // 스트리밍 텍스트는 사용자 안내를 포함하므로 유지 (숨기지 않음)
     if (_chatPanel) {
-      _chatPanel.addMessage('📋 전략이 설계되었습니다: ' + (data.name || '분석 전략'), 'system');
+      // 방식 저장 안내 + 버튼 (카드 바로 아래)
+      _chatPanel.addMessage('이 방식을 저장하면 다음에 바로 불러와 사용할 수 있습니다.', 'system');
       _chatPanel.addActionButtons([
         {
-          label: '이 전략으로 바로 실행',
-          icon: '🚀',
-          action: function () {
-            _chatPanel.setInputPlaceholder('이 전략으로 업무를 지시하세요...');
-            _chatPanel.addMessage('업무를 입력하세요. 이 전략의 관점으로 분석합니다.', 'system');
-          },
-        },
-        {
-          label: '전략 저장',
+          label: '이 방식 저장하기',
           icon: '💾',
           action: function () {
-            var name = data.name || '분석 전략';
-            _send({
-              type: 'save_strategy',
-              data: data,
-            });
+            _send({ type: 'save_strategy', data: data });
           },
         },
         {
-          label: '전략 수정 요청',
+          label: '방식 수정 요청',
           icon: '✏️',
           action: function () {
             _chatPanel.setInputPlaceholder('수정 요청을 입력하세요...');
             _chatPanel.addMessage('어떤 부분을 수정할까요? (예: "경쟁사 분석 관점 추가해줘")', 'system');
+            _pendingEditMode = true;
           },
         },
       ]);
-      _chatPanel.setInputPlaceholder('이 전략으로 업무를 지시하세요...');
+      // 출력 형식 선택 — 실행 지시 시 선택
+      _chatPanel.showFormatSelector([
+        { id: 'html', label: 'HTML', icon: '📄', default: true },
+        { id: 'pdf', label: 'PDF', icon: '📑' },
+        { id: 'markdown', label: 'Markdown', icon: '📝' },
+        { id: 'csv', label: 'CSV', icon: '📊' },
+        { id: 'json', label: 'JSON', icon: '{}' },
+      ]);
+      _chatPanel.setInputPlaceholder('이 방식으로 업무를 지시하세요...');
     }
   }
 
   function _displayStrategyCards(strategy) {
+    if (!strategy) { _currentStrategy = null; _currentStrategyId = null; return; }
     _currentStrategy = strategy;
     _currentStrategyId = strategy.id || null;
 
-    var canvas = document.getElementById('card-canvas');
-    if (!canvas) return;
+    // 풀와이드 모드: 채팅 메시지 영역에 인라인 렌더링
+    // 분할 모드: 캔버스에 오버레이 렌더링
+    var app = document.getElementById('card-app');
+    var isInline = app && app.classList.contains('chat-fullwidth');
+    var container = isInline
+      ? (_chatPanel ? _chatPanel.messagesEl : document.querySelector('.cc-messages'))
+      : document.getElementById('card-canvas');
+    if (!container) return;
 
-    // 빈 상태 숨기기
-    var emptyEl = document.getElementById('card-empty-state');
-    if (emptyEl) emptyEl.style.display = 'none';
-
-    // Drawflow 숨기기
-    var drawflow = canvas.querySelector('.drawflow');
-    if (drawflow) drawflow.style.display = 'none';
+    if (!isInline) {
+      // 분할 모드: 빈 상태 숨기기 + Drawflow 숨기기
+      var emptyEl = document.getElementById('card-empty-state');
+      if (emptyEl) emptyEl.style.display = 'none';
+      var drawflow = container.querySelector('.drawflow');
+      if (drawflow) drawflow.style.display = 'none';
+    }
 
     // 기존 전략 뷰 제거
     var old = document.getElementById('strategy-view');
@@ -308,12 +326,66 @@ var CardBuilder = (function () {
       view.appendChild(special);
     }
 
-    canvas.appendChild(view);
+    if (isInline) view.classList.add('sv-inline');
+    container.appendChild(view);
+    if (isInline) container.scrollTop = container.scrollHeight;
   }
 
   function _renderSidebarStrategyList() {
-    // 전략 목록은 기존 팀 목록 아래에 추가 — 간단히 콘솔만 표시
-    // (사이드바 UI 확장은 추후)
+    // WebSocket 초기 수신 시만 호출 (초기 버튼 추가는 _handleMessage에서 처리)
+  }
+
+  var _showStrategyListRequested = false;
+  var _strategyListEl = null;
+
+  function showStrategyList() {
+    if (!_chatPanel) return;
+
+    // 이미 열려있으면 토글로 닫기
+    if (_strategyListEl && _strategyListEl.parentNode) {
+      _strategyListEl.remove();
+      _strategyListEl = null;
+      return;
+    }
+
+    if (_strategies.length === 0) {
+      _chatPanel.addMessage('저장된 방식이 없습니다. 새로 만들어보세요.', 'system');
+      return;
+    }
+
+    // 트리형 리스트 생성
+    var list = document.createElement('div');
+    list.className = 'cc-strategy-tree';
+    for (var i = 0; i < _strategies.length; i++) {
+      (function (s) {
+        var item = document.createElement('div');
+        item.className = 'cc-strategy-item';
+        item.textContent = '📊 ' + (s.name || '방식');
+        item.addEventListener('click', function () {
+          _send({ type: 'load_strategy', data: { strategy_id: s.id } });
+          _displayStrategyCards(s);
+          if (_chatPanel) {
+            _chatPanel.addMessage('✅ "' + (s.name || '방식') + '" 방식이 로드되었습니다. 업무를 지시하세요.', 'system');
+            _chatPanel.setInputPlaceholder('이 방식으로 업무를 지시하세요...');
+            // 출력 형식 선택 표시
+            _chatPanel.showFormatSelector([
+              { id: 'html', label: 'HTML', icon: '📄', default: true },
+              { id: 'pdf', label: 'PDF', icon: '📑' },
+              { id: 'markdown', label: 'Markdown', icon: '📝' },
+              { id: 'csv', label: 'CSV', icon: '📊' },
+              { id: 'json', label: 'JSON', icon: '{}' },
+            ]);
+          }
+          // 리스트 닫기
+          if (list.parentNode) list.remove();
+          _strategyListEl = null;
+        });
+        list.appendChild(item);
+      })(_strategies[i]);
+    }
+    _chatPanel.messagesEl.appendChild(list);
+    _chatPanel.messagesEl.scrollTop = _chatPanel.messagesEl.scrollHeight;
+    _strategyListEl = list;
   }
 
   function _loadCompanyToCanvas(company) {
@@ -384,6 +456,14 @@ var CardBuilder = (function () {
   /* ── Public API ── */
 
   function sendMessage(text) {
+    // 수정 요청 모드: 현재 전략 컨텍스트를 포함하여 수정 요청 전달
+    if (_pendingEditMode && _currentStrategy) {
+      _pendingEditMode = false;
+      var editPrompt = '현재 전략 "' + (_currentStrategy.name || '') + '"을 다음과 같이 수정해줘: ' + text;
+      _send({ type: 'strategy_message', data: { content: editPrompt } });
+      return;
+    }
+    _pendingEditMode = false;
     // 싱글 세션 모드에서는 전략 설계 에이전트로 전달
     var msgType = _useStrategyMode ? 'strategy_message' : 'builder_message';
     _send({ type: msgType, data: { content: text } });
@@ -454,6 +534,10 @@ var CardBuilder = (function () {
 
   function listCompanies() {
     _send({ type: 'list_companies' });
+  }
+
+  function listStrategies() {
+    _send({ type: 'list_strategies' });
   }
 
   function getCompanies() {
@@ -529,6 +613,8 @@ var CardBuilder = (function () {
     loadCompany: loadCompany,
     deleteCompany: deleteCompany,
     listCompanies: listCompanies,
+    listStrategies: listStrategies,
+    showStrategyList: showStrategyList,
     getCompanies: getCompanies,
     saveSchedule: saveSchedule,
     listSchedules: listSchedules,

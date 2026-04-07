@@ -310,9 +310,16 @@ var CardEventHandler = (function () {
     // 분할 모드: canvas 위에 오버레이 렌더링
     var app = document.getElementById('card-app');
     var isInline = app && app.classList.contains('chat-fullwidth');
-    var container = isInline
-      ? document.querySelector('.cc-messages')
-      : document.getElementById('card-canvas');
+    var container;
+    if (isInline) {
+      // 모드별 컨테이너가 여러 개일 수 있으므로 보이는(display !== none) 것을 찾음
+      var candidates = document.querySelectorAll('.cc-messages');
+      for (var ci = 0; ci < candidates.length; ci++) {
+        if (candidates[ci].style.display !== 'none') { container = candidates[ci]; break; }
+      }
+    } else {
+      container = document.getElementById('card-canvas');
+    }
     if (!container) return;
 
     var dash = document.getElementById('activity-dash');
