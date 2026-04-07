@@ -100,15 +100,16 @@ class EventBridge:
                     },
                 ))
 
-        # ── Messages ──
-        for msg in update.get("messages", []):
-            content = msg.content if hasattr(msg, "content") else str(msg)
-            speaker, style = self._classify_message(content, node_name)
-            events.append(SimEvent(
-                type="message",
-                timestamp=now,
-                data={"speaker": speaker, "content": content, "style": style},
-            ))
+        # ── Messages (intake 에코 제외) ──
+        if node_name != "intake":
+            for msg in update.get("messages", []):
+                content = msg.content if hasattr(msg, "content") else str(msg)
+                speaker, style = self._classify_message(content, node_name)
+                events.append(SimEvent(
+                    type="message",
+                    timestamp=now,
+                    data={"speaker": speaker, "content": content, "style": style},
+                ))
 
         # ── Error state ──
         if update.get("phase") == "error":

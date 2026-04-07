@@ -1,5 +1,6 @@
 /**
  * CardChatPanel — right-side chat panel for card view.
+ * Supports per-mode message history via switchMode().
  *
  * Usage:
  *   const panel = new CardChatPanel(containerEl, {
@@ -14,6 +15,8 @@ class CardChatPanel {
   constructor(containerEl, opts = {}) {
     this.el = containerEl;
     this.onSend = opts.onSend || (() => {});
+    this._modeContainers = {}; // mode → DOM element
+    this._currentMode = null;
 
     // --- build DOM ---
     while (this.el.firstChild) this.el.removeChild(this.el.firstChild);
@@ -32,7 +35,7 @@ class CardChatPanel {
     header.appendChild(title);
     header.appendChild(closeBtn);
 
-    // messages area
+    // messages area (default container)
     this.messagesEl = document.createElement('div');
     this.messagesEl.className = 'cc-messages';
 
@@ -76,6 +79,44 @@ class CardChatPanel {
   }
 
   /**
+   * Switch to a different mode's message container.
+   * Creates a new container if first visit, otherwise restores existing.
+   * @param {string} mode — e.g. 'instant', 'builder'
+   */
+  switchMode(mode) {
+    if (this._currentMode === mode) return;
+
+    // Hide current container (including initial default one)
+    if (this.messagesEl) {
+      if (this._currentMode) {
+        this._modeContainers[this._currentMode] = this.messagesEl;
+      }
+      this.messagesEl.style.display = 'none';
+    }
+
+    // Restore or create target container
+    if (this._modeContainers[mode]) {
+      this.messagesEl = this._modeContainers[mode];
+      this.messagesEl.style.display = '';
+    } else {
+      var newContainer = document.createElement('div');
+      newContainer.className = 'cc-messages';
+      newContainer.dataset.mode = mode;
+      this._modeContainers[mode] = newContainer;
+      this.messagesEl = newContainer;
+      // Insert before input wrap
+      var inputWrap = this.el.querySelector('.cc-input-wrap');
+      if (inputWrap) {
+        this.el.insertBefore(newContainer, inputWrap);
+      } else {
+        this.el.appendChild(newContainer);
+      }
+    }
+
+    this._currentMode = mode;
+  }
+
+  /**
    * Add a message bubble.
    * @param {string} text
    * @param {'user'|'system'} type
@@ -103,7 +144,10 @@ class CardChatPanel {
   toggle(open) {
     const app = document.getElementById('card-app');
     if (app) {
-      app.classList.toggle('chat-open', open);
+      // chat-fullwidth 모드에서는 chat-open 불필요 (이미 전체 영역)
+      if (!app.classList.contains('chat-fullwidth')) {
+        app.classList.toggle('chat-open', open);
+      }
     }
     this.el.classList.toggle('collapsed', !open);
   }
@@ -236,7 +280,7 @@ class CardChatPanel {
     if (el) el.remove();
   }
 
-  /** Remove all messages. */
+  /** Remove all messages from current mode's container. */
   clear() {
     while (this.messagesEl.firstChild) {
       this.messagesEl.removeChild(this.messagesEl.firstChild);

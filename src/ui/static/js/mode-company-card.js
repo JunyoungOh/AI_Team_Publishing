@@ -10,6 +10,7 @@ var CardView = (function () {
   var _ws = null;            // WebSocket instance
   var _wsReady = false;      // WebSocket open state
   var _running = false;      // pipeline running state
+  var _runningMode = null;   // which mode started the running task
 
   /* ── Welcome messages per mode ── */
   var WELCOME = {
@@ -67,33 +68,48 @@ var CardView = (function () {
       el.style.display = 'none';
     });
 
-    // Show Drawflow canvas, empty state, activity dash, and chat toggle
-    var drawflow = document.querySelector('#card-canvas .drawflow');
-    if (drawflow) drawflow.style.display = '';
-    var actDash = document.getElementById('activity-dash');
-    if (actDash) actDash.style.display = '';
-    var emptyEl = document.getElementById('card-empty-state');
-    if (emptyEl) emptyEl.style.display = '';
-    var chatToggle = document.getElementById('card-chat-toggle');
-    if (chatToggle) chatToggle.style.display = '';
+    var app = document.getElementById('card-app');
 
-    // 실행 중이면 중지하지 않고 UI만 복원
-    if (_running) {
+    // 인스턴트 + 빌더 모두 풀와이드 채팅 (canvas 숨김)
+    if (app) app.classList.add('chat-fullwidth');
+
+    // 모드별 메시지 컨테이너 전환
+    if (_chatPanel) {
+      _chatPanel.switchMode(mode);
+      _chatPanel.toggle(true);
+    }
+
+    // 실행 중인 모드로 복귀하면 UI 복원
+    if (_running && _runningMode === mode) {
       if (mode === 'builder') {
         CardBuilder.connect(_chatPanel);
       }
       _updateHeaderForMode(mode);
-      if (_chatPanel) _chatPanel.toggle(true);
-      // 숨겨졌던 UI 요소 복원
       document.getElementById('card-stop-btn').style.display = '';
       var stepBar = document.getElementById('card-step-bar');
       if (stepBar && CardEventHandler.getStepLabel()) stepBar.style.display = '';
       return;
     }
 
+    // 다른 모드로 전환: 중지 버튼/스텝바는 현재 모드 것만 표시
+    if (!_running || _runningMode !== mode) {
+      document.getElementById('card-stop-btn').style.display = 'none';
+      document.getElementById('card-step-bar').style.display = 'none';
+    }
+
+    // 이미 초기화된 모드면 컨텐츠 유지 (재초기화 하지 않음)
+    if (_chatPanel && _chatPanel.messagesEl.childNodes.length > 0) {
+      // Connect builder WS if needed
+      if (mode === 'builder') {
+        CardBuilder.connect(_chatPanel);
+      }
+      _updateHeaderForMode(mode);
+      return;
+    }
+
+    // 첫 진입: 초기화
     CardEventHandler.reset();
 
-    // Clear canvas & node map
     if (_editor) {
       _editor.clear();
     }
@@ -106,14 +122,10 @@ var CardView = (function () {
       CardBuilder.disconnect();
     }
 
-    // Close editor if open
     CardEditor.close();
 
-    // Clear chat and show welcome
+    // Show welcome for this mode
     if (_chatPanel) {
-      _chatPanel.clear();
-      _chatPanel.toggle(true);
-      _chatPanel.setTitle(mode === 'builder' ? '🤖 팀 설계 에이전트' : 'Chat');
       _chatPanel.addMessage(WELCOME[mode] || '', 'system', { welcome: true });
       _chatPanel.setInputPlaceholder(
         mode === 'builder' ? '팀 설계를 요청하세요...' : '업무를 지시하세요...'
@@ -173,8 +185,9 @@ var CardView = (function () {
     var chatToggle = document.getElementById('card-chat-toggle');
     if (chatToggle) chatToggle.style.display = 'none';
     if (_chatPanel) _chatPanel.toggle(false);
-    // Ensure chat-open grid column collapses
+    // Ensure fullwidth and chat-open grid columns collapse
     var cardApp = document.getElementById('card-app');
+    if (cardApp) cardApp.classList.remove('chat-fullwidth');
     if (cardApp) cardApp.classList.remove('chat-open');
     CardEditor.close();
   }
@@ -262,6 +275,7 @@ var CardView = (function () {
     _ws.onclose = function () {
       _wsReady = false;
       _running = false;
+      _runningMode = null;
       _ws = null;
       // Reconnect only if instant mode is active
       if (_activeMode === 'instant') {
@@ -295,6 +309,7 @@ var CardView = (function () {
       if (!_running) {
         // Start a new pipeline run
         _running = true;
+        _runningMode = _activeMode;
         CardEventHandler.reset();
         document.getElementById('card-stop-btn').style.display = '';
         _connectWS();
@@ -416,6 +431,7 @@ var CardView = (function () {
         setTimeout(sendStart, 100);
       } else {
         _running = false;
+        _runningMode = null;
         document.getElementById('card-stop-btn').style.display = 'none';
         if (_chatPanel) _chatPanel.addMessage('❌ 서버 연결 실패', 'system');
       }
@@ -437,6 +453,7 @@ var CardView = (function () {
         setTimeout(sendStart, 100);
       } else {
         _running = false;
+        _runningMode = null;
         document.getElementById('card-stop-btn').style.display = 'none';
         if (_chatPanel) _chatPanel.addMessage('❌ 서버 연결 실패', 'system');
       }
@@ -543,12 +560,13 @@ var CardView = (function () {
         if (_chatPanel) {
           var q = (data && data.questions) || (data && data.content) || '질문이 있습니다. 응답해 주세요.';
           if (Array.isArray(q)) q = q.join('\n\n');
-          _chatPanel.addMessage('❓ ' + q, 'system', { interrupt: true, preserveNewlines: true });
+          _chatPanel.addMessage('❓ ' + q + '\n\n아래에 답변을 입력해주세요.', 'system', { interrupt: true, preserveNewlines: true });
           _chatPanel.setInputPlaceholder('응답을 입력하세요...');
         }
       },
       onComplete: function (data) {
         _running = false;
+        _runningMode = null;
         if (_chatPanel) _chatPanel.hideThinking();
         document.getElementById('card-stop-btn').style.display = 'none';
         document.getElementById('card-step-bar').style.display = 'none';
@@ -562,6 +580,7 @@ var CardView = (function () {
       },
       onError: function (msg) {
         _running = false;
+        _runningMode = null;
         document.getElementById('card-stop-btn').style.display = 'none';
         document.getElementById('card-step-bar').style.display = 'none';
       },
@@ -693,6 +712,7 @@ var CardView = (function () {
     if (_running) {
       _sendWS({ type: 'stop' });
       _running = false;
+      _runningMode = null;
     }
   }
 

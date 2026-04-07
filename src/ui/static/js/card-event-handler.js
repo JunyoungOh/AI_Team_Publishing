@@ -222,10 +222,14 @@ var CardEventHandler = (function () {
 
     // Filter out verbose internal logs — only show user-facing messages
     if (content.startsWith('[CEO]') || content.startsWith('SYSTEM:')) return;
+    if (content.startsWith('[CEO ->')) return;
+    if (content.startsWith('[Analyst]')) return;
+    if (content.startsWith('[Blackboard')) return;
+    if (content.startsWith('[Report Review]')) return;
+    if (content.startsWith('[CEO Revise]')) return;
+    if (content.startsWith('[Generated Files]')) return;
     if (content.indexOf('Rationale:') !== -1) return;
     if (content.indexOf('Generated ') !== -1 && content.indexOf(' questions') !== -1) return;
-    // Skip CEO question messages — already shown via interrupt event as ❓
-    if (content.startsWith('[CEO ->') && content.indexOf('Questions:') !== -1) return;
 
     // Show only meaningful messages: reports, user-facing announcements
     if (style === 'report') {
@@ -302,15 +306,24 @@ var CardEventHandler = (function () {
   var _HIDDEN_TOOLS = { 'ToolSearch': true, 'TodoRead': true, 'TodoWrite': true };
 
   function _renderActivityToCanvas(d) {
-    var canvas = document.getElementById('card-canvas');
-    if (!canvas) return;
+    // 풀와이드 모드: chat messages 안에 인라인 렌더링
+    // 분할 모드: canvas 위에 오버레이 렌더링
+    var app = document.getElementById('card-app');
+    var isInline = app && app.classList.contains('chat-fullwidth');
+    var container = isInline
+      ? document.querySelector('.cc-messages')
+      : document.getElementById('card-canvas');
+    if (!container) return;
 
     var dash = document.getElementById('activity-dash');
     if (!dash) {
-      var empty = document.getElementById('card-empty-state');
-      if (empty) empty.style.display = 'none';
+      if (!isInline) {
+        var empty = document.getElementById('card-empty-state');
+        if (empty) empty.style.display = 'none';
+      }
       dash = document.createElement('div');
       dash.id = 'activity-dash';
+      if (isInline) dash.classList.add('ad-inline');
       // Build structure with DOM (no innerHTML for untrusted data)
       var header = document.createElement('div');
       header.className = 'ad-header';
@@ -332,7 +345,8 @@ var CardEventHandler = (function () {
       dash.appendChild(header);
       dash.appendChild(cards);
       dash.appendChild(feed);
-      canvas.appendChild(dash);
+      container.appendChild(dash);
+      if (isInline) container.scrollTop = container.scrollHeight;
       _activityStart = Date.now();
       _activityTimer = setInterval(_updateTimer, 1000);
     }
@@ -462,9 +476,11 @@ var CardEventHandler = (function () {
       }
     },
     activity: function (d) {
-      // 캔버스 영역에 활동 로그 렌더링
+      // 캔버스/인라인 영역에 활동 대시보드 렌더링
       _renderActivityToCanvas(d);
-      // 시작/완료만 채팅에 표시
+      // 풀와이드 모드: 도구 사용도 채팅 타임라인에 표시
+      var app = document.getElementById('card-app');
+      var isFullwidth = app && app.classList.contains('chat-fullwidth');
       if (d.action === 'started' || d.action === 'completed' || d.action === 'timeout') {
         if (_onChatMessage) _onChatMessage(d.message || '', 'system', { activity: true });
         if (d.action === 'completed' && _onHierarchy) _onHierarchy();

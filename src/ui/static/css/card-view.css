@@ -52,6 +52,57 @@
 #card-app.chat-open {
   grid-template-columns: minmax(52px, 52px) 1fr 360px;
 }
+/* 인스턴트 모드: canvas 없이 chat이 전체 영역 차지 */
+#card-app.chat-fullwidth {
+  grid-template-columns: minmax(52px, 52px) 0px 1fr;
+}
+#card-app.chat-fullwidth #card-canvas { display: none; }
+#card-app.chat-fullwidth #card-chat {
+  grid-column: 2 / -1;
+  border-left: none;
+}
+#card-app.chat-fullwidth #card-chat-toggle { display: none; }
+#card-app.chat-fullwidth .cc-header { display: none; }
+/* 풀와이드에서 메시지 영역 확장 */
+#card-app.chat-fullwidth .cc-messages {
+  padding: 24px 10%;
+  max-width: 1100px;
+  margin: 0 auto;
+  width: 100%;
+}
+#card-app.chat-fullwidth .cc-header {
+  padding: 0 10%;
+}
+#card-app.chat-fullwidth .cc-input-wrap {
+  padding: 12px 10%;
+  max-width: 1100px;
+  margin: 0 auto;
+  width: 100%;
+}
+/* 풀와이드: 사용자 메시지만 말풍선, 시스템은 플레인 텍스트 */
+#card-app.chat-fullwidth .cc-message {
+  max-width: 70%;
+  font-size: 0.85em;
+}
+#card-app.chat-fullwidth .cc-message-system {
+  background: none;
+  border: none;
+  color: var(--cv-text);
+  padding: 4px 0;
+  max-width: 100%;
+  align-self: flex-start;
+  border-radius: 0;
+}
+#card-app.chat-fullwidth .cc-message-system.cc-welcome {
+  background: none;
+  border: none;
+  text-align: left;
+  align-self: flex-start;
+  max-width: 100%;
+  color: var(--cv-dim);
+  font-size: 0.9em;
+  padding: 8px 0;
+}
 #card-header { grid-column: 1 / -1; }
 
 /* ── 3. Header ── */
@@ -432,6 +483,7 @@
   flex: 1; overflow-y: auto;
   padding: 16px;
   display: flex; flex-direction: column; gap: 10px;
+  justify-content: flex-start;
 }
 .cc-messages::-webkit-scrollbar { width: 4px; }
 .cc-messages::-webkit-scrollbar-track { background: transparent; }
@@ -614,25 +666,22 @@
 }
 #card-app.chat-open #card-chat-toggle { display: none; }
 
-/* ── 8a. Stop Button ── */
+/* ── 8a. Stop Button (header right) ── */
 #card-stop-btn {
-  position: fixed; bottom: 22px; left: 50%;
-  transform: translateX(-50%);
-  padding: 8px 24px; border-radius: 10px;
+  padding: 5px 16px; border-radius: 8px;
   background: rgba(233, 69, 96, 0.12);
   border: 1px solid rgba(233, 69, 96, 0.35);
-  color: var(--cv-red); font-size: 0.78em; font-weight: 600;
+  color: var(--cv-red); font-size: 0.75em; font-weight: 700;
   font-family: 'Outfit', sans-serif;
-  cursor: pointer; z-index: 50;
+  cursor: pointer;
   transition: all 0.2s;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.35);
 }
 #card-stop-btn:hover {
   background: rgba(233, 69, 96, 0.22);
   border-color: var(--cv-red);
 }
 
-/* ── 8c-1. Activity Dashboard (canvas overlay) ── */
+/* ── 8c-1. Activity Dashboard (canvas overlay OR chat inline) ── */
 #activity-dash {
   position: absolute; inset: 80px 24px 24px;
   z-index: 5;
@@ -644,6 +693,24 @@
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--cv-border);
   overflow: hidden;
+}
+/* 인라인 모드: chat messages 안에 렌더링될 때 */
+#activity-dash.ad-inline {
+  position: relative; inset: auto;
+  margin: 12px 0;
+  padding: 20px;
+  background: rgba(255,255,255,0.03);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  flex-shrink: 0;
+  align-self: stretch;
+  max-width: 100%;
+}
+#activity-dash.ad-inline .ad-cards {
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+}
+#activity-dash.ad-inline .ad-feed {
+  max-height: 120px;
 }
 .ad-header {
   display: flex; justify-content: space-between; align-items: center;
