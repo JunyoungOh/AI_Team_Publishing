@@ -2244,6 +2244,7 @@ body::before {
 <link rel="stylesheet" href="/static/css/dandelion.css">
 <link rel="stylesheet" href="/static/css/schedule.css">
 <link rel="stylesheet" href="/static/css/overtime.css">
+<link rel="stylesheet" href="/static/css/skill.css">
 <link rel="stylesheet" href="/static/lib/drawflow.min.css">
 <link rel="stylesheet" href="/static/css/card-view.css?v=20260403b">
 </head>
@@ -2366,6 +2367,9 @@ body::before {
     <div class="cs-item" data-card-mode="overtime" title="야근팀"><span class="cs-icon">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
     </span><span class="cs-label">야근팀</span></div>
+    <div class="cs-item" data-card-mode="skill" title="스킬"><span class="cs-icon">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+    </span><span class="cs-label">스킬</span></div>
     <div class="cs-sep"></div>
     <div class="cs-item" data-card-mode="discussion" title="토론"><span class="cs-icon">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -2393,6 +2397,7 @@ body::before {
     <div id="card-mode-secretary" class="card-mode-content" style="display:none"></div>
     <div id="card-mode-schedule" class="card-mode-content" style="display:none"></div>
     <div id="card-mode-overtime" class="card-mode-content" style="display:none"></div>
+    <div id="card-mode-skill" class="card-mode-content" style="display:none"></div>
   </div>
   <div id="card-chat"></div>
   <div id="card-editor"></div>
@@ -2662,6 +2667,8 @@ body::before {
 <script src="/static/js/mode-schedule.js"></script>
 <!-- Module: Overtime Mode -->
 <script src="/static/js/mode-overtime.js"></script>
+<!-- Module: Skill Tab (SkillManager — create + list + inline execute) -->
+<script src="/static/js/mode-skill.js"></script>
 <!-- Module: App (ModeManager, Auth, capability ticker, DOMContentLoaded entry) -->
 <script src="/static/js/app.js"></script>
 
