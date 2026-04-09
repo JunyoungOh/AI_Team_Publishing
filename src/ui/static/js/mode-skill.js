@@ -213,8 +213,7 @@ var SkillManager = (function () {
 
     var sub = document.createElement('p');
     sub.className = 'subtitle';
-    sub.textContent =
-      '지금까지 만든 스킬들입니다. 카드 클릭 실행 및 스케줄링은 다음 버전에서 지원 예정.';
+    sub.textContent = '카드를 클릭해서 실행하세요. 입력란에 자유롭게 텍스트를 적고 실행 버튼을 누르면 됩니다.';
     root.appendChild(sub);
 
     var grid = document.createElement('div');
@@ -333,38 +332,26 @@ var SkillManager = (function () {
     result.style.display = 'none';
     panel.appendChild(result);
 
-    var historyToggle = document.createElement('button');
-    historyToggle.className = 'skill-exec-history-toggle';
-    historyToggle.textContent = '이력 불러오는 중...';
-    panel.appendChild(historyToggle);
-
-    var historyEl = document.createElement('div');
-    historyEl.className = 'skill-exec-history';
-    historyEl.style.display = 'none';
-    panel.appendChild(historyEl);
+    // 실행 횟수 카운트 라벨 (이력 펼침은 제거 — 카운트만 충분)
+    var historyLabel = document.createElement('div');
+    historyLabel.className = 'skill-exec-history-count';
+    historyLabel.textContent = '실행 횟수: 불러오는 중...';
+    panel.appendChild(historyLabel);
 
     card.appendChild(panel);
 
-    fetch('/api/skill-builder/runs/' + encodeURIComponent(skill.slug))
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        var runs = (data && data.runs) || [];
-        historyToggle.textContent = '이력 보기 (' + runs.length + '건)';
-        historyToggle.onclick = function () {
-          if (historyEl.style.display === 'none') {
-            _renderHistory(historyEl, runs);
-            historyEl.style.display = '';
-            historyToggle.textContent = '이력 숨기기';
-          } else {
-            historyEl.style.display = 'none';
-            historyToggle.textContent = '이력 보기 (' + runs.length + '건)';
-          }
-        };
-      })
-      .catch(function () {
-        historyToggle.textContent = '이력 불러오기 실패';
-        historyToggle.disabled = true;
-      });
+    function _refreshRunCount() {
+      fetch('/api/skill-builder/runs/' + encodeURIComponent(skill.slug))
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          var runs = (data && data.runs) || [];
+          historyLabel.textContent = '실행 횟수: ' + runs.length + '회';
+        })
+        .catch(function () {
+          historyLabel.textContent = '실행 횟수: (불러오기 실패)';
+        });
+    }
+    _refreshRunCount();
 
     runBtn.onclick = function () {
       var input = textarea.value.trim();
@@ -373,55 +360,13 @@ var SkillManager = (function () {
       while (log.firstChild) log.removeChild(log.firstChild);
       log.style.display = '';
       result.style.display = 'none';
-      _startExecution(skill, input, log, result, runBtn, textarea, historyToggle);
+      _startExecution(skill, input, log, result, runBtn, textarea, _refreshRunCount);
     };
 
     textarea.focus();
   }
 
-  function _renderHistory(el, runs) {
-    while (el.firstChild) el.removeChild(el.firstChild);
-    if (!runs.length) {
-      var empty = document.createElement('div');
-      empty.className = 'skill-exec-history-empty';
-      empty.textContent = '아직 실행 이력이 없습니다';
-      el.appendChild(empty);
-      return;
-    }
-    runs.forEach(function (r) {
-      var item = document.createElement('div');
-      item.className = 'skill-exec-history-item status-' + r.status;
-
-      var head = document.createElement('div');
-      head.className = 'history-head';
-      head.textContent =
-        (r.started_at || '').replace('T', ' ').slice(0, 19)
-        + ' · ' + r.status
-        + ' · 도구 ' + r.tool_count + '회';
-      item.appendChild(head);
-
-      var inputEl = document.createElement('div');
-      inputEl.className = 'history-input';
-      inputEl.textContent = '입력: ' + (r.user_input || '(없음)').slice(0, 100);
-      item.appendChild(inputEl);
-
-      if (r.result_text) {
-        var resEl = document.createElement('div');
-        resEl.className = 'history-result';
-        _renderMarkdownSafe(resEl, r.result_text);
-        item.appendChild(resEl);
-      }
-      if (r.error_message) {
-        var errEl = document.createElement('div');
-        errEl.className = 'history-error';
-        errEl.textContent = '❌ ' + r.error_message;
-        item.appendChild(errEl);
-      }
-      el.appendChild(item);
-    });
-  }
-
-  function _startExecution(skill, input, logEl, resultEl, runBtn, textarea, historyToggle) {
+  function _startExecution(skill, input, logEl, resultEl, runBtn, textarea, refreshRunCount) {
     var proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
     _execWs = new WebSocket(proto + location.host + '/ws/skill-execute');
 
@@ -464,12 +409,8 @@ var SkillManager = (function () {
         resultEl.style.display = '';
         runBtn.disabled = false;
         textarea.disabled = false;
-        fetch('/api/skill-builder/runs/' + encodeURIComponent(skill.slug))
-          .then(function (r) { return r.json(); })
-          .then(function (data) {
-            var runs = (data && data.runs) || [];
-            historyToggle.textContent = '이력 보기 (' + runs.length + '건)';
-          });
+        // 카운트 라벨만 갱신 (이력 펼침은 제거됨)
+        if (typeof refreshRunCount === 'function') refreshRunCount();
       } else if (msg.type === 'error') {
         appendLog('❌ ' + ((msg.data && msg.data.message) || '오류'), 'error');
         runBtn.disabled = false;
