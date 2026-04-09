@@ -392,6 +392,11 @@ var CardView = (function () {
           OvertimeManager.mountInShell(container); _modeBooted[mode] = true;
         }
         break;
+      case 'skill':
+        if (typeof SkillManager !== 'undefined' && SkillManager.mountInShell) {
+          SkillManager.mountInShell(container); _modeBooted[mode] = true;
+        }
+        break;
     }
   }
 
@@ -406,7 +411,8 @@ var CardView = (function () {
       persona: ['Persona ', 'Workshop'],
       secretary: ['AI ', 'Secretary'],
       schedule: ['', '스케줄팀'],
-      overtime: ['', '야근팀']
+      overtime: ['', '야근팀'],
+      skill: ['내 ', '스킬']
     };
     var parts = accentMap[mode] || accentMap.instant;
     title.textContent = '';
@@ -523,25 +529,36 @@ var CardView = (function () {
         return;
       }
 
+      // 수정 요청 모드가 활성이면 무조건 방식 재설계 대화로 라우팅
+      // (전략이 이미 있어도 실행이 아닌 "수정"이므로 builder agent에게 전달해야 함)
+      var isEditing = CardBuilder.isPendingEditMode && CardBuilder.isPendingEditMode();
+
       if (_builderSubTab === 'create') {
         // 새 방식 만들기 탭
         var createStrategy = CardBuilder.getCurrentStrategy();
-        if (createStrategy) {
-          // 방식이 설계됨 → 이 방식으로 바로 실행 테스트
+        if (createStrategy && !isEditing) {
+          // 방식이 설계됨 + 수정 모드 아님 → 이 방식으로 바로 실행
           _startStrategyExecution(text, createStrategy);
         } else {
-          // 방식 설계 대화 → builder agent에게 전달
+          // 방식 설계 대화 (초기 또는 수정) → builder agent에게 전달
           if (_chatPanel) {
             _chatPanel.showThinking();
-            _chatPanel.setInputPlaceholder('방식 설계 중...');
+            _chatPanel.setInputPlaceholder(isEditing ? '방식 수정 중...' : '방식 설계 중...');
           }
           CardBuilder.sendMessage(text);
         }
       } else if (_builderSubTab === 'saved') {
         // 저장된 방식 탭
         var savedStrategy = CardBuilder.getCurrentStrategy();
-        if (savedStrategy) {
-          // 방식이 로드됨 → 이 방식으로 실행
+        if (savedStrategy && isEditing) {
+          // 저장된 방식을 수정 중 → builder agent에게 전달
+          if (_chatPanel) {
+            _chatPanel.showThinking();
+            _chatPanel.setInputPlaceholder('방식 수정 중...');
+          }
+          CardBuilder.sendMessage(text);
+        } else if (savedStrategy) {
+          // 방식 로드됨 + 수정 모드 아님 → 실행
           _startStrategyExecution(text, savedStrategy);
         } else {
           // 방식 미선택 → 안내

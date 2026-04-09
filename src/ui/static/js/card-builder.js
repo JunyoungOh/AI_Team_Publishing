@@ -585,6 +585,30 @@ var CardBuilder = (function () {
     trySet();
   }
 
+  /* ── Helpers ── */
+
+  function _summarizeStrategyForEdit(s) {
+    if (!s) return '(없음)';
+    var lines = [];
+    lines.push('- 이름: ' + (s.name || ''));
+    if (s.description) lines.push('- 설명: ' + s.description);
+    lines.push('- 깊이: ' + (s.depth || 'standard'));
+    lines.push('- 출력 형식: ' + (s.output_format || 'executive_report'));
+    var perspectives = s.perspectives || [];
+    lines.push('- 관점 (' + perspectives.length + '개):');
+    for (var i = 0; i < perspectives.length; i++) {
+      var p = perspectives[i] || {};
+      lines.push(
+        '  ' + (i + 1) + '. ' + (p.icon || '📌') + ' ' + (p.name || '관점') +
+        (p.instruction ? ' — ' + p.instruction : '')
+      );
+    }
+    if (s.special_instructions) {
+      lines.push('- 특별 지시: ' + s.special_instructions);
+    }
+    return lines.join('\n');
+  }
+
   /* ── Public API ── */
 
   function sendMessage(text) {
@@ -593,10 +617,18 @@ var CardBuilder = (function () {
       if (_chatPanel) _chatPanel.addMessage('먼저 방식 유형을 선택해주세요.', 'system');
       return;
     }
-    // 수정 요청 모드: 현재 전략 컨텍스트를 포함하여 수정 요청 전달
+    // 수정 요청 모드: 현재 전략 전체 컨텍스트를 포함하여 재설계 요청 전달
+    // (세션이 유실되었거나 CLI resume이 실패해도 모델이 전체 맥락을 복원할 수 있도록)
     if (_pendingEditMode && _currentStrategy) {
       _pendingEditMode = false;
-      var editPrompt = '현재 전략 "' + (_currentStrategy.name || '') + '"을 다음과 같이 수정해줘: ' + text;
+      var strategyCtx = _summarizeStrategyForEdit(_currentStrategy);
+      var editPrompt =
+        '[방식 수정 요청 — 명확화 질문 없이 바로 재설계]\n\n' +
+        '## 현재 방식\n' + strategyCtx + '\n\n' +
+        '## 사용자 수정 요청\n' + text + '\n\n' +
+        '위 수정 요청을 반영하여 **전체 방식을 재설계**해주세요. ' +
+        '반드시 ```strategy_json 블록을 포함하여 응답하세요. ' +
+        '명확화 질문은 생략하고 바로 수정된 방식을 출력하세요.';
       _send({ type: 'strategy_message', data: { content: editPrompt } });
       return;
     }
@@ -770,6 +802,7 @@ var CardBuilder = (function () {
     loadAndDisplayStrategy: function (s) { _displayStrategyCards(s); },
     deleteStrategy: function (id) { _send({ type: 'delete_strategy', data: { strategy_id: id } }); },
     setPendingEditMode: function (v) { _pendingEditMode = !!v; },
+    isPendingEditMode: function () { return _pendingEditMode; },
     validateTask: validateTask,
     showTypeSelector: showTypeSelector,
     startWithType: startWithType,

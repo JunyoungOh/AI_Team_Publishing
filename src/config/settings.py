@@ -123,8 +123,10 @@ class Settings(BaseSettings):
 
     # Single Session Mode (싱글 CLI 세션으로 전체 실행)
     use_single_session: bool = False          # True = 싱글 세션 모드 활성화
-    single_session_timeout: int = 600         # 싱글 세션 타임아웃 (초)
-    single_session_max_turns: int = 80        # 싱글 세션 최대 턴 수
+    # Base timeout (초) — single_session_node에서 complexity에 따라 0.7~1.5배 스케일.
+    # 5관점 이상 전략의 병렬 리서치 + HTML 합성에 필요한 넉넉한 여유 확보.
+    single_session_timeout: int = 1200        # 싱글 세션 기본 타임아웃 (20분)
+    single_session_max_turns: int = 100       # 싱글 세션 기본 최대 턴 수
 
     # P-E-S-R (Planner-Executor-Synthesizer-Reviewer) review loop
     enable_review_loop: bool = True            # False = skip P-E-S-R loop, use flat/staged execution

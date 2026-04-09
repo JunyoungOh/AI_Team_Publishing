@@ -95,8 +95,12 @@ async def _stream_session(
     model: str,
     max_turns: int,
     timeout: int,
-) -> str:
-    """CLI subprocess를 스트리밍으로 실행하고 활동 이벤트를 emit."""
+) -> tuple[str, bool]:
+    """CLI subprocess를 스트리밍으로 실행하고 활동 이벤트를 emit.
+
+    Returns:
+        (full_text, timed_out) — timed_out이 True면 타임아웃으로 중단됨.
+    """
     from src.utils.claude_code import (
         _register_process,
         _unregister_process,
@@ -135,6 +139,7 @@ async def _stream_session(
 
     full_text = ""
     tool_count = 0
+    timed_out = False
     start_time = time.time()
 
     # 시작 이벤트
@@ -203,13 +208,14 @@ async def _stream_session(
                         full_text = result_text
 
     except TimeoutError:
+        timed_out = True
         elapsed = round(time.time() - start_time, 1)
         _logger.warning("single_session_timeout", elapsed_s=elapsed, timeout=timeout)
         emit_mode_event(session_id, {
             "type": "activity",
             "data": {
                 "action": "timeout",
-                "message": f"⏱️ 타임아웃 ({elapsed}초)",
+                "message": f"⏱️ 타임아웃 ({elapsed}초) — 부분 결과를 저장합니다",
                 "elapsed": elapsed,
             },
         })
@@ -218,17 +224,23 @@ async def _stream_session(
         _unregister_process(proc)
 
     elapsed = round(time.time() - start_time, 1)
+    completed_msg = (
+        f"⚠️ 작업이 시간 제한 ({timeout}초)으로 중단되었습니다 — 부분 결과만 저장됨"
+        if timed_out
+        else f"✅ 작업 완료 ({elapsed}초, 도구 {tool_count}회 사용)"
+    )
     emit_mode_event(session_id, {
         "type": "activity",
         "data": {
             "action": "completed",
-            "message": f"✅ 작업 완료 ({elapsed}초, 도구 {tool_count}회 사용)",
+            "message": completed_msg,
             "elapsed": elapsed,
             "tool_count": tool_count,
+            "timed_out": timed_out,
         },
     })
 
-    return full_text
+    return full_text, timed_out
 
 
 async def single_session_node(state: dict) -> dict:
@@ -306,15 +318,41 @@ async def single_session_node(state: dict) -> dict:
         is_scheduled=is_scheduled,
     )
 
-    timeout_map = {"high": 900, "medium": 600, "low": 420}
-    max_turns_map = {"high": 100, "medium": 80, "low": 60}
-    timeout = timeout_map.get(complexity, 600)
-    max_turns = max_turns_map.get(complexity, 80)
+    # 전략 복잡도에 따른 타임아웃 조정:
+    # - 5+ 관점 병렬 리서치 → high
+    # - 3-4 관점 → 최소 medium
+    # - settings.single_session_timeout을 기준점으로 승수 적용
+    effective_complexity = complexity
+    if strategy:
+        num_perspectives = len(strategy.get("perspectives", []))
+        if num_perspectives >= 5:
+            effective_complexity = "high"
+        elif num_perspectives >= 3 and effective_complexity == "low":
+            effective_complexity = "medium"
+
+    base_timeout = max(settings.single_session_timeout, 600)  # 최소 10분 안전장치
+    base_max_turns = max(settings.single_session_max_turns, 60)
+
+    timeout_multiplier = {"high": 1.5, "medium": 1.0, "low": 0.7}
+    turns_multiplier = {"high": 1.5, "medium": 1.0, "low": 0.75}
+    timeout = int(base_timeout * timeout_multiplier.get(effective_complexity, 1.0))
+    max_turns = int(base_max_turns * turns_multiplier.get(effective_complexity, 1.0))
+
+    _logger.info(
+        "single_session_timeout_config",
+        session_id=session_id,
+        complexity=effective_complexity,
+        timeout=timeout,
+        max_turns=max_turns,
+        perspectives=len(strategy.get("perspectives", [])) if strategy else 0,
+        base_timeout=base_timeout,
+    )
 
     start_time = time.time()
+    timed_out = False
 
     try:
-        result = await _stream_session(
+        result, timed_out = await _stream_session(
             prompt=prompt,
             system_prompt=SINGLE_SESSION_SYSTEM,
             session_id=session_id,
@@ -328,6 +366,7 @@ async def single_session_node(state: dict) -> dict:
             session_id=session_id,
             elapsed_s=round(elapsed, 1),
             result_len=len(result),
+            timed_out=timed_out,
         )
     except Exception as e:
         elapsed = time.time() - start_time
@@ -354,11 +393,18 @@ async def single_session_node(state: dict) -> dict:
         if html_path.exists():
             report_path = html_path
     if not report_path.exists():
-        _logger.warning("single_session_no_report_file", session_id=session_id)
+        _logger.warning(
+            "single_session_no_report_file",
+            session_id=session_id,
+            timed_out=timed_out,
+        )
         Path(report_dir).mkdir(parents=True, exist_ok=True)
         fallback = Path(report_dir) / "results.html"
         fallback.write_text(
-            _build_fallback_html(result, user_task, session_id),
+            _build_fallback_html(
+                result, user_task, session_id,
+                is_timeout=timed_out, timeout_s=timeout,
+            ),
             encoding="utf-8",
         )
 
@@ -391,8 +437,19 @@ async def single_session_node(state: dict) -> dict:
     }
 
 
-def _build_fallback_html(result: str, user_task: str, session_id: str) -> str:
-    """CLI 세션이 HTML 파일을 직접 생성하지 못한 경우의 fallback."""
+def _build_fallback_html(
+    result: str,
+    user_task: str,
+    session_id: str,
+    is_timeout: bool = False,
+    timeout_s: int = 0,
+) -> str:
+    """CLI 세션이 HTML 파일을 직접 생성하지 못한 경우의 fallback.
+
+    타임아웃이 원인이면 상단에 경고 배너를 표시하여 사용자가 결과의 불완전성을
+    알 수 있게 합니다. 내용은 모델이 생성한 raw text (학습용 인사이트 블록 등
+    포함) — "크래시"가 아니라 "부분 결과"임을 명확히 안내합니다.
+    """
     from datetime import datetime
     import html as html_mod
 
@@ -400,20 +457,50 @@ def _build_fallback_html(result: str, user_task: str, session_id: str) -> str:
     escaped_task = html_mod.escape(user_task)
     escaped_result = html_mod.escape(result[:50000] if result else "(결과 없음)")
 
+    banner_html = ""
+    title_prefix = ""
+    if is_timeout:
+        title_prefix = "[미완료] "
+        banner_html = (
+            '<div class="warning">'
+            '<div class="warning-title">⚠️ 작업이 시간 제한으로 중단되었습니다</div>'
+            f'<p>AI가 최종 보고서를 완성하기 전에 타임아웃({timeout_s}초)이 발생했습니다. '
+            '아래는 AI가 작업 중 생성한 <strong>부분 결과</strong>입니다. '
+            '완전한 보고서를 위해서는 다음을 시도해보세요:</p>'
+            '<ul>'
+            '<li>작업 범위를 더 구체적으로 좁히기</li>'
+            '<li>관점(perspectives) 개수 줄이기</li>'
+            '<li>분석 깊이(depth)를 light 또는 standard로 변경</li>'
+            '</ul>'
+            '</div>'
+        )
+    elif not result:
+        banner_html = (
+            '<div class="warning">'
+            '<div class="warning-title">⚠️ AI 응답이 비어있습니다</div>'
+            '<p>CLI 세션이 결과를 반환하지 않았습니다. 다시 시도해보세요.</p>'
+            '</div>'
+        )
+
     return (
         '<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
-        f'<title>{escaped_task}</title>'
+        f'<title>{title_prefix}{escaped_task}</title>'
         '<style>'
         "body{font-family:'Apple SD Gothic Neo','Noto Sans KR',sans-serif;"
         "max-width:900px;margin:0 auto;padding:40px 24px;color:#1a1a2e;background:#f4f6f9;line-height:1.7}"
         ".header{background:linear-gradient(135deg,#0f3460,#16213e);color:#fff;padding:40px;border-radius:12px;margin-bottom:24px}"
         ".header h1{font-size:24px;margin:0 0 8px}"
         ".header .meta{font-size:12px;opacity:0.6}"
+        ".warning{background:#fff8e1;border:1px solid #f59e0b;border-left:4px solid #f59e0b;padding:20px 24px;border-radius:8px;margin-bottom:24px;color:#7c2d12}"
+        ".warning-title{font-weight:700;font-size:16px;margin-bottom:8px}"
+        ".warning ul{margin:8px 0 0 20px;padding:0}"
+        ".warning li{margin:4px 0}"
         ".content{background:#fff;padding:32px;border-radius:12px;border:1px solid #e0e5ee;white-space:pre-wrap;font-size:14px}"
         '</style></head><body>'
-        f'<div class="header"><h1>{escaped_task}</h1>'
+        f'<div class="header"><h1>{title_prefix}{escaped_task}</h1>'
         f'<div class="meta">Generated {generated_at} | Session {session_id}</div></div>'
+        f'{banner_html}'
         f'<div class="content">{escaped_result}</div>'
         '</body></html>'
     )
