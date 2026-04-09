@@ -821,6 +821,176 @@ async def overtime_endpoint(ws: WebSocket):
         logging.getLogger(__name__).error("overtime_crash: %s", e, exc_info=True)
 
 
+@app.get("/api/skill-builder/list")
+async def skill_builder_list():
+    """스킬 목록 패널이 호출. data/skills/registry.json 내용을 반환."""
+    from dataclasses import asdict
+    from pathlib import Path as _Path
+
+    from src.skill_builder.registry import SkillRegistry
+
+    reg = SkillRegistry(path=_Path("data/skills/registry.json"))
+    return {"skills": [asdict(r) for r in reg.list_all()]}
+
+
+@app.websocket("/ws/skill-builder")
+async def skill_builder_endpoint(ws: WebSocket):
+    """스킬 만들기 패널의 세션 resume 루프 플로우.
+
+    Message protocol (client → server):
+      {type: "start", data: {description: str}}
+      {type: "choice", data: {choice: "new" | "import:<slug>"}}
+      {type: "user_message", data: {text: str}}  # skill-creator 인터뷰 답변
+      {type: "cancel"}
+
+    Message protocol (server → client):
+      {type: "greeting", data: {text: str}}
+      {type: "search_results", data: {candidates: [...]}}
+      {type: "assistant_message", data: {text: str}}
+      {type: "created", data: {slug: str, skill_path: str}}
+      {type: "error", data: {message: str}}
+    """
+    await ws.accept()
+    from src.skill_builder.runner import run_skill_builder_session
+
+    try:
+        await run_skill_builder_session(ws)
+    except WebSocketDisconnect:
+        return
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(
+            "skill_builder_crash: %s", e, exc_info=True
+        )
+        try:
+            await ws.send_json({"type": "error", "data": {"message": str(e)}})
+        except Exception:
+            pass
+
+
+@app.get("/api/skill-builder/runs/{slug}")
+async def skill_builder_runs(slug: str):
+    """특정 스킬의 실행 이력을 newest first로 반환."""
+    from dataclasses import asdict
+
+    from fastapi.responses import JSONResponse
+
+    from src.skill_builder.run_history import list_runs
+
+    try:
+        records = list_runs(slug)
+    except ValueError:
+        return JSONResponse({"error": "invalid slug"}, status_code=400)
+    return {"runs": [asdict(r) for r in records]}
+
+
+@app.websocket("/ws/skill-execute")
+async def skill_execute_endpoint(ws: WebSocket):
+    """스킬 카드 실행 — single shot 실행 후 종료.
+
+    Protocol (client → server):
+      {type: "execute", data: {slug: str, user_input: str}}
+      {type: "cancel"}
+
+    Protocol (server → client):
+      {type: "started"}
+      {type: "tool_use", data: {tool, tool_count, elapsed}}
+      {type: "text", data: {chunk, elapsed}}
+      {type: "timeout", data: {elapsed}}
+      {type: "completed", data: {run_id, result_text, ...}}
+      {type: "error", data: {message}}
+    """
+    import asyncio
+
+    from src.skill_builder.execution_runner import run_skill
+
+    await ws.accept()
+    task = None  # Track runner so we can cancel on disconnect
+    try:
+        msg = await ws.receive_json()
+        if msg.get("type") != "execute":
+            await ws.send_json({
+                "type": "error",
+                "data": {"message": "첫 메시지는 execute 타입이어야 합니다"},
+            })
+            return
+
+        data = msg.get("data") or {}
+        slug = (data.get("slug") or "").strip()
+        user_input = data.get("user_input") or ""
+        if not slug:
+            await ws.send_json({
+                "type": "error",
+                "data": {"message": "slug는 필수입니다"},
+            })
+            return
+
+        pending: list[dict] = []
+
+        def on_event(ev: dict) -> None:
+            # streamer는 동기 콜백을 호출 — 큐에 쌓아두고 메인 task가 flush
+            pending.append(ev)
+
+        async def flush_pending() -> None:
+            while pending:
+                ev = pending.pop(0)
+                action = ev.get("action")
+                if action == "tool_use":
+                    await ws.send_json({"type": "tool_use", "data": ev})
+                elif action == "text":
+                    await ws.send_json({"type": "text", "data": ev})
+                elif action == "started":
+                    await ws.send_json({"type": "started"})
+                elif action == "timeout":
+                    await ws.send_json({"type": "timeout", "data": ev})
+                elif action == "error":
+                    await ws.send_json({"type": "error", "data": ev})
+                # 'completed'는 run_skill 반환 후 record와 함께 보냄
+
+        async def runner_task():
+            return await run_skill(
+                slug=slug,
+                user_input=user_input,
+                on_event=on_event,
+            )
+
+        task = asyncio.create_task(runner_task())
+        # 50ms마다 flush — 실시간성 vs 오버헤드 균형
+        while not task.done():
+            await flush_pending()
+            await asyncio.sleep(0.05)
+        await flush_pending()
+        record = await task
+
+        await ws.send_json({
+            "type": "completed",
+            "data": {
+                "run_id": record.run_id,
+                "result_text": record.result_text,
+                "tool_count": record.tool_count,
+                "duration_seconds": record.duration_seconds,
+                "status": record.status,
+                "error_message": record.error_message,
+            },
+        })
+    except WebSocketDisconnect:
+        # Cancel orphaned runner task so subprocess is torn down
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+        return
+    except Exception as e:
+        if task and not task.done():
+            task.cancel()
+        try:
+            await ws.send_json({"type": "error", "data": {"message": str(e)}})
+        except Exception:
+            pass
+
+
 @app.websocket("/ws/agent")
 async def agent_mode_endpoint(ws: WebSocket):
     """WebSocket endpoint for AI Agent mode sessions."""
