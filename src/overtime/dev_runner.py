@@ -137,23 +137,35 @@ async def generate_clarify_questions(
     task: str,
     session_id: str,
 ) -> str:
-    """명확화 질문을 생성하여 반환."""
+    """명확화 질문 생성. bridge.structured_query + Pydantic 스키마로 구조화된 응답 강제."""
+    from pydantic import BaseModel, Field
+    from src.utils.bridge_factory import get_bridge
+
+    class DevClarifyQuestions(BaseModel):
+        """개발 모드 명확화 질문."""
+        questions: list[str] = Field(min_length=1, max_length=5, description="3~5개 질문 목록")
+
     settings = get_settings()
     system, user = build_clarify_prompt(task)
 
     _emit(session_id, "clarify", "generating", message="명확화 질문 생성 중")
 
-    result = await _run_with_rate_limit_retry(
-        system_prompt=system,
-        user_prompt=user,
-        tools=["Read"],  # 빈 리스트 금지 — 최소 1개
-        session_id=session_id,
-        phase="clarify",
-        model=settings.worker_model,
-        max_turns=3,
-        timeout=60,
-    )
-    return result
+    bridge = get_bridge()
+    try:
+        result: DevClarifyQuestions = await bridge.structured_query(
+            system_prompt=system,
+            user_message=user,
+            output_schema=DevClarifyQuestions,
+            model=settings.worker_model,
+            allowed_tools=[],
+            timeout=120,
+        )
+        # 번호 매긴 질문 텍스트로 변환
+        lines = [f"{i+1}. {q}" for i, q in enumerate(result.questions)]
+        return "\n".join(lines)
+    except Exception as e:
+        _logger.warning("clarify_structured_error", error=str(e))
+        return "질문 생성에 실패했습니다. 자유롭게 설명을 추가해주세요."
 
 
 async def run_dev_overtime(
