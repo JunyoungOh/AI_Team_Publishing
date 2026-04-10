@@ -13,6 +13,11 @@ var OvertimeManager = (function () {
   var _selectedStrategy = null;
   var _otWsPanel = null;
 
+  var _otMode = 'research';   // 'research' | 'dev'
+  var _devTask = '';
+  var _devSessionId = '';
+  var _devQuestions = '';
+
   function mountInShell(container) {
     _container = container;
     _render();
@@ -29,6 +34,26 @@ var OvertimeManager = (function () {
     if (!_container) return;
     _loadStrategies();
     while (_container.firstChild) _container.removeChild(_container.firstChild);
+
+    // 탭 스위처
+    var tabSwitcher = document.createElement('div');
+    tabSwitcher.className = 'ot-tab-switcher';
+
+    var researchBtn = document.createElement('button');
+    researchBtn.textContent = '리서치';
+    researchBtn.className = 'ot-tab-btn' + (_otMode === 'research' ? ' active' : '');
+    researchBtn.onclick = function () { _otMode = 'research'; _render(); };
+    tabSwitcher.appendChild(researchBtn);
+
+    var devBtn = document.createElement('button');
+    devBtn.textContent = '개발';
+    devBtn.className = 'ot-tab-btn' + (_otMode === 'dev' ? ' active' : '');
+    devBtn.onclick = function () { _otMode = 'dev'; _render(); };
+    tabSwitcher.appendChild(devBtn);
+
+    _container.appendChild(tabSwitcher);
+
+    if (_otMode === 'research') {
 
     // 설정 폼
     var form = document.createElement('div');
@@ -130,6 +155,10 @@ var OvertimeManager = (function () {
     progress.id = 'ot-progress';
     progress.style.display = 'none';
     _container.appendChild(progress);
+
+    } else {
+      _renderDevForm();
+    }
   }
 
   var _pendingOtTask = '';
@@ -233,7 +262,13 @@ var OvertimeManager = (function () {
     var type = msg.type;
     var data = msg.data || {};
 
-    if (type === 'overtime_detail_prompt' || type === 'overtime_questions') {
+    if (type === 'dev_clarify_questions') {
+      _showDevQuestions(data.questions, data.session_id);
+    } else if (type === 'dev_started') {
+      _addDevLog('개발이 시작되었습니다', 'session_start');
+    } else if (type === 'dev_progress') {
+      _handleDevProgress(data);
+    } else if (type === 'overtime_detail_prompt' || type === 'overtime_questions') {
       _showOtDetailForm();
     } else if (type === 'overtime_iteration') {
       _handleIteration(data);
@@ -488,6 +523,287 @@ var OvertimeManager = (function () {
     var form = _container.querySelector('.ot-form');
     if (form) form.after(qa);
     else _container.appendChild(qa);
+  }
+
+  function _renderDevForm() {
+    var form = document.createElement('div');
+    form.className = 'ot-form';
+
+    var title = document.createElement('h2');
+    title.className = 'ot-title';
+    title.textContent = '앱 개발';
+    form.appendChild(title);
+
+    var subtitle = document.createElement('p');
+    subtitle.className = 'ot-subtitle';
+    subtitle.textContent = '만들고 싶은 앱을 설명하면 AI가 자동으로 개발합니다. 로컬에서 바로 실행 가능한 앱이 만들어집니다.';
+    form.appendChild(subtitle);
+
+    // 앱 설명 입력
+    var taskLabel = document.createElement('label');
+    taskLabel.textContent = '만들고 싶은 앱';
+    taskLabel.className = 'ot-label';
+    form.appendChild(taskLabel);
+
+    var taskInput = document.createElement('textarea');
+    taskInput.className = 'dev-task-input';
+    taskInput.placeholder = '예: 할일 관리 앱을 만들어줘. 할일을 추가하고 완료 체크하고, 날짜별로 정리할 수 있었으면 좋겠어.';
+    taskInput.rows = 5;
+    form.appendChild(taskInput);
+
+    // WorkspacePanel
+    var wsSection = document.createElement('div');
+    wsSection.className = 'ot-field';
+    _otWsPanel = WorkspacePanel.create(wsSection, 'overtime');
+    form.appendChild(wsSection);
+
+    // 시작 버튼
+    var startBtn = document.createElement('button');
+    startBtn.className = 'ot-start-btn';
+    startBtn.textContent = '개발 시작';
+    startBtn.onclick = function () {
+      var task = taskInput.value.trim();
+      if (!task) {
+        alert('만들고 싶은 앱을 설명해주세요.');
+        return;
+      }
+      _devTask = task;
+      startBtn.disabled = true;
+      startBtn.textContent = '질문 생성 중...';
+      _connect();
+      var retries = 0;
+      var sendClarify = function () {
+        if (_ws && _ws.readyState === WebSocket.OPEN) {
+          _ws.send(JSON.stringify({
+            type: 'start_dev_clarify',
+            data: { task: task },
+          }));
+        } else if (retries < 50) {
+          retries++;
+          setTimeout(sendClarify, 100);
+        }
+      };
+      sendClarify();
+    };
+    form.appendChild(startBtn);
+
+    _container.appendChild(form);
+  }
+
+  function _showDevQuestions(questions, sessionId) {
+    _devSessionId = sessionId;
+    _devQuestions = questions;
+
+    // Clear container and show questions
+    while (_container.firstChild) _container.removeChild(_container.firstChild);
+
+    var panel = document.createElement('div');
+    panel.className = 'ot-form';
+
+    var title = document.createElement('h2');
+    title.className = 'ot-title';
+    title.textContent = '몇 가지만 확인할게요';
+    panel.appendChild(title);
+
+    // 질문 표시 (AI가 생성한 텍스트를 줄바꿈으로 분리)
+    var qText = document.createElement('div');
+    qText.className = 'dev-questions-text';
+    qText.style.cssText = 'white-space:pre-wrap;font-size:14px;color:#E6EDF3;line-height:1.8;margin-bottom:16px;padding:16px;background:var(--surface,#161B22);border-radius:8px;border:1px solid var(--border,rgba(255,255,255,0.08));';
+    qText.textContent = questions;
+    panel.appendChild(qText);
+
+    // 답변 textarea
+    var ansLabel = document.createElement('label');
+    ansLabel.textContent = '답변';
+    ansLabel.className = 'ot-label';
+    panel.appendChild(ansLabel);
+
+    var ansInput = document.createElement('textarea');
+    ansInput.className = 'dev-task-input';
+    ansInput.placeholder = '위 질문에 자유롭게 답변해주세요. 모든 질문에 답하지 않아도 됩니다.';
+    ansInput.rows = 6;
+    panel.appendChild(ansInput);
+
+    // 개발 시작 버튼
+    var startBtn = document.createElement('button');
+    startBtn.className = 'ot-start-btn';
+    startBtn.textContent = '개발 시작';
+    startBtn.onclick = function () {
+      var answers = ansInput.value.trim();
+      _startDev(_devTask, answers, _devSessionId);
+    };
+    panel.appendChild(startBtn);
+
+    // 건너뛰기 (답변 없이 진행)
+    var skipBtn = document.createElement('button');
+    skipBtn.className = 'ot-skip-btn';
+    skipBtn.style.cssText = 'margin-top:8px;background:none;border:1px solid var(--border,rgba(255,255,255,0.08));color:var(--dim,#8b949e);padding:8px 16px;border-radius:8px;cursor:pointer;width:100%;font-size:14px;';
+    skipBtn.textContent = '건너뛰고 바로 개발 시작';
+    skipBtn.onclick = function () {
+      _startDev(_devTask, '', _devSessionId);
+    };
+    panel.appendChild(skipBtn);
+
+    _container.appendChild(panel);
+  }
+
+  function _startDev(task, answers, sessionId) {
+    _running = true;
+
+    // Progress UI
+    while (_container.firstChild) _container.removeChild(_container.firstChild);
+    _renderDevProgress();
+
+    var wsFiles = _otWsPanel ? _otWsPanel.getSelectedFiles() : [];
+
+    var retries = 0;
+    var sendStart = function () {
+      if (_ws && _ws.readyState === WebSocket.OPEN) {
+        _ws.send(JSON.stringify({
+          type: 'start_dev',
+          data: {
+            task: task,
+            answers: answers,
+            session_id: sessionId,
+            workspace_files: wsFiles,
+          },
+        }));
+      } else if (retries < 50) {
+        retries++;
+        setTimeout(sendStart, 100);
+      }
+    };
+    sendStart();
+  }
+
+  function _renderDevProgress() {
+    var wrap = document.createElement('div');
+    wrap.id = 'dev-progress';
+    wrap.style.padding = '20px';
+
+    // Phase bar
+    var phaseBar = document.createElement('div');
+    phaseBar.className = 'dev-phase-bar';
+    phaseBar.id = 'dev-phase-bar';
+
+    var phases = [
+      { id: 'clarify', label: '질문' },
+      { id: 'dev', label: '개발' },
+      { id: 'report', label: '리포트' },
+    ];
+
+    phases.forEach(function (p, i) {
+      if (i > 0) {
+        var conn = document.createElement('div');
+        conn.className = 'dev-phase-connector';
+        conn.id = 'dev-conn-' + p.id;
+        phaseBar.appendChild(conn);
+      }
+      var item = document.createElement('div');
+      item.className = 'dev-phase-item';
+      item.id = 'dev-phase-' + p.id;
+      item.textContent = p.label;
+      // clarify is already done at this point
+      if (p.id === 'clarify') {
+        item.classList.add('done');
+        item.textContent = '✓ ' + p.label;
+      }
+      phaseBar.appendChild(item);
+    });
+
+    wrap.appendChild(phaseBar);
+
+    // Log area
+    var logArea = document.createElement('div');
+    logArea.id = 'dev-log';
+    logArea.style.cssText = 'margin-top:16px;max-height:400px;overflow-y:auto;';
+    wrap.appendChild(logArea);
+
+    _container.appendChild(wrap);
+  }
+
+  function _handleDevProgress(data) {
+    var phase = data.phase;
+    var action = data.action;
+
+    // Update phase bar
+    var phaseEl = document.getElementById('dev-phase-' + phase);
+    if (phaseEl) {
+      // Clear previous active states for this phase
+      phaseEl.classList.remove('done');
+      if (action === 'complete' || action === 'generating') {
+        if (action === 'complete') {
+          phaseEl.classList.add('done');
+          phaseEl.classList.remove('active');
+          var label = phaseEl.textContent.replace(/^[●○✓]\s*/, '');
+          phaseEl.textContent = '✓ ' + label;
+          // Also mark connector as done
+          var conn = document.getElementById('dev-conn-' + phase);
+          if (conn) conn.classList.add('done');
+        }
+      } else {
+        phaseEl.classList.add('active');
+        var label2 = phaseEl.textContent.replace(/^[●○✓]\s*/, '');
+        phaseEl.textContent = '● ' + label2;
+      }
+    }
+
+    // Add log entry
+    if (data.message) {
+      _addDevLog(data.message, action);
+    }
+
+    // If report complete, show link
+    if (phase === 'report' && action === 'complete' && data.report_path) {
+      _addDevReportLink(data.report_path, data.app_dir);
+    }
+  }
+
+  function _addDevLog(message, type) {
+    var logArea = document.getElementById('dev-log');
+    if (!logArea) return;
+    var entry = document.createElement('div');
+    entry.style.cssText = 'padding:6px 0;font-size:13px;color:var(--dim,#8b949e);border-bottom:1px solid var(--border,rgba(255,255,255,0.08));';
+
+    var time = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+    var icon = '📋';
+    if (type === 'rate_limited') icon = '⏸️';
+    else if (type === 'complete') icon = '✅';
+    else if (type === 'error') icon = '❌';
+    else if (type === 'session_start') icon = '🚀';
+    else if (type === 'handoff') icon = '🔄';
+    else if (type === 'generating') icon = '📝';
+
+    entry.textContent = time + ' ' + icon + ' ' + message;
+    logArea.appendChild(entry);
+    logArea.scrollTop = logArea.scrollHeight;
+  }
+
+  function _addDevReportLink(reportPath, appDir) {
+    var logArea = document.getElementById('dev-log');
+    if (!logArea) return;
+
+    var linkWrap = document.createElement('div');
+    linkWrap.style.cssText = 'margin-top:16px;display:flex;gap:8px;';
+
+    var reportBtn = document.createElement('button');
+    reportBtn.className = 'ot-start-btn';
+    reportBtn.textContent = '📄 리포트 + 실행 가이드 보기';
+    reportBtn.onclick = function () { window.open(reportPath + '/results.html', '_blank'); };
+    linkWrap.appendChild(reportBtn);
+
+    if (appDir) {
+      var folderBtn = document.createElement('button');
+      folderBtn.style.cssText = 'padding:10px 16px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);cursor:pointer;font-size:14px;';
+      folderBtn.textContent = '📁 앱 폴더 열기';
+      folderBtn.onclick = function () {
+        fetch('/api/workspace/overtime/open', { method: 'POST' }).catch(function () {});
+      };
+      linkWrap.appendChild(folderBtn);
+    }
+
+    logArea.appendChild(linkWrap);
+    _running = false;
   }
 
   function _buildOtStrategyPicker() {
