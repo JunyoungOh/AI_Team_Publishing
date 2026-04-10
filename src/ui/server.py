@@ -42,6 +42,7 @@ from src.ui.routes.engineering import router as eng_router
 from src.ui.routes.datalab import router as datalab_router
 from src.ui.routes.foresight import router as foresight_router
 from src.ui.routes.discussion import router as discussion_router
+from src.ui.routes.workspace import router as workspace_router
 
 app = FastAPI(title="Enterprise Agent Simulation")
 
@@ -65,6 +66,7 @@ app.include_router(eng_router)
 app.include_router(datalab_router)
 app.include_router(foresight_router)
 app.include_router(discussion_router)
+app.include_router(workspace_router)
 
 
 def _membership_enabled() -> bool:
@@ -1050,6 +1052,11 @@ async def persona_interview_endpoint(ws: WebSocket):
 _REPORTS_DIR = Path(__file__).parents[2] / "data" / "reports"
 _REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 _DATA_DIR = Path(__file__).parents[2] / "data"
+
+# ── Workspace startup init ────────────────────────
+from src.utils.workspace import ensure_workspace, VALID_MODES  # noqa: E402
+for _m in VALID_MODES:
+    ensure_workspace(_m)
 
 
 @app.get("/preview-file")
