@@ -50,3 +50,9 @@ concurrent_test.png
 report_*.png
 detail_*.png
 instant_*.png
+
+# 모드별 워크스페이스 (사용자 파일 + AI 결과물)
+data/workspace/*/input/*
+data/workspace/*/output/*
+!data/workspace/*/input/.gitkeep
+!data/workspace/*/output/.gitkeep
