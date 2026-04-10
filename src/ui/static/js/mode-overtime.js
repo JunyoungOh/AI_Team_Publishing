@@ -18,6 +18,7 @@ var OvertimeManager = (function () {
   var _devSessionId = '';
   var _devQuestions = '';
   var _devPaused = false;
+  var _overtimeHistory = [];
 
   function mountInShell(container) {
     _container = container;
@@ -291,6 +292,10 @@ var OvertimeManager = (function () {
     } else if (type === 'overtime_stopped') {
       _running = false;
       _addLogEntry('⏹️ 야근이 중단되었습니다.');
+    } else if (type === 'overtime_list') {
+      _overtimeHistory = (data.overtimes || []);
+      // 히스토리 수신 시 초기 화면이면 다시 렌더
+      if (!_running) _renderHistory();
     } else if (type === 'error') {
       _addLogEntry('❌ ' + (data.message || '오류'));
     }
@@ -537,6 +542,8 @@ var OvertimeManager = (function () {
   }
 
   function _renderDevForm() {
+    // 히스토리 로드를 위해 미리 연결
+    _connect();
     var form = document.createElement('div');
     form.className = 'ot-form';
 
@@ -599,6 +606,101 @@ var OvertimeManager = (function () {
     form.appendChild(startBtn);
 
     _container.appendChild(form);
+
+    // 히스토리 영역 (placeholder — 데이터 수신 시 _renderHistory가 채움)
+    var histWrap = document.createElement('div');
+    histWrap.id = 'ot-dev-history';
+    _container.appendChild(histWrap);
+    _renderHistory();
+  }
+
+  function _renderHistory() {
+    var histWrap = document.getElementById('ot-dev-history');
+    if (!histWrap) return;
+    while (histWrap.firstChild) histWrap.removeChild(histWrap.firstChild);
+
+    // 최근 1주일 dev 모드 기록만 필터
+    var oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    var recent = _overtimeHistory.filter(function (ot) {
+      if (ot.mode !== 'dev') return false;
+      var d = ot.created_at ? new Date(ot.created_at) : null;
+      return d && d >= oneWeekAgo;
+    });
+
+    if (recent.length === 0) return;
+
+    var title = document.createElement('h3');
+    title.style.cssText = 'color:var(--text,#E6EDF3);font-size:15px;font-weight:600;margin:24px 0 12px;';
+    title.textContent = '최근 개발 기록';
+    histWrap.appendChild(title);
+
+    recent.forEach(function (ot) {
+      var card = document.createElement('div');
+      card.style.cssText = 'padding:12px 16px;background:var(--surface,#161B22);border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:8px;margin-bottom:8px;cursor:default;';
+
+      var top = document.createElement('div');
+      top.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;';
+
+      var name = document.createElement('span');
+      name.style.cssText = 'color:var(--text,#E6EDF3);font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;';
+      name.textContent = (ot.task || ot.name || '').slice(0, 50);
+      top.appendChild(name);
+
+      var status = document.createElement('span');
+      status.style.cssText = 'font-size:12px;margin-left:8px;flex-shrink:0;';
+      if (ot.status === 'completed') {
+        status.style.color = 'var(--green,#3FB950)';
+        status.textContent = '완료';
+      } else if (ot.status === 'running') {
+        status.style.color = 'var(--yellow,#D29922)';
+        status.textContent = '진행중';
+      } else {
+        status.style.color = 'var(--dim,#8b949e)';
+        status.textContent = ot.status || '중단';
+      }
+      top.appendChild(status);
+      card.appendChild(top);
+
+      var date = document.createElement('div');
+      date.style.cssText = 'color:var(--dim,#8b949e);font-size:12px;';
+      var d = ot.created_at ? new Date(ot.created_at) : null;
+      date.textContent = d ? d.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+      card.appendChild(date);
+
+      // 완료된 항목은 리포트 보기 가능
+      if (ot.status === 'completed' && ot.session_id) {
+        var linkRow = document.createElement('div');
+        linkRow.style.cssText = 'margin-top:8px;display:flex;gap:6px;';
+
+        var reportLink = document.createElement('a');
+        reportLink.href = '/reports/' + ot.session_id + '/results.html';
+        reportLink.target = '_blank';
+        reportLink.style.cssText = 'color:var(--accent,#58A6FF);font-size:12px;text-decoration:none;';
+        reportLink.textContent = '📄 리포트';
+        linkRow.appendChild(reportLink);
+
+        var folderLink = document.createElement('a');
+        folderLink.href = '#';
+        folderLink.style.cssText = 'color:var(--accent,#58A6FF);font-size:12px;text-decoration:none;';
+        folderLink.textContent = '📁 폴더';
+        (function (sid) {
+          folderLink.onclick = function (e) {
+            e.preventDefault();
+            fetch('/api/open-folder', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ path: 'data/workspace/overtime/output/' + sid + '/app' }),
+            }).catch(function () {});
+          };
+        })(ot.session_id);
+        linkRow.appendChild(folderLink);
+
+        card.appendChild(linkRow);
+      }
+
+      histWrap.appendChild(card);
+    });
   }
 
   function _showDevQuestions(questions, sessionId) {
@@ -850,7 +952,11 @@ var OvertimeManager = (function () {
       folderBtn.style.cssText = 'padding:10px 16px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);cursor:pointer;font-size:14px;';
       folderBtn.textContent = '📁 앱 폴더 열기';
       folderBtn.onclick = function () {
-        fetch('/api/workspace/overtime/open', { method: 'POST' }).catch(function () {});
+        fetch('/api/open-folder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: appDir }),
+        }).catch(function () {});
       };
       linkWrap.appendChild(folderBtn);
     }
@@ -860,6 +966,16 @@ var OvertimeManager = (function () {
     // 스탑 버튼 숨기기
     var stopBtn = document.getElementById('dev-stop-btn');
     if (stopBtn) stopBtn.style.display = 'none';
+
+    // 처음으로 돌아가기 버튼
+    var homeWrap = document.createElement('div');
+    homeWrap.style.cssText = 'margin-top:12px;';
+    var homeBtn = document.createElement('button');
+    homeBtn.style.cssText = 'padding:10px 16px;background:none;border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:8px;color:var(--dim,#8b949e);cursor:pointer;font-size:14px;width:100%;';
+    homeBtn.textContent = '← 처음으로';
+    homeBtn.onclick = function () { _render(); };
+    homeWrap.appendChild(homeBtn);
+    logArea.appendChild(homeWrap);
   }
 
   function _handleDevStop() {
@@ -958,9 +1074,21 @@ var OvertimeManager = (function () {
       folderBtn.style.cssText = 'margin-top:8px;padding:10px 16px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);cursor:pointer;font-size:14px;';
       folderBtn.textContent = '📁 앱 폴더 열기';
       folderBtn.onclick = function () {
-        fetch('/api/workspace/overtime/open', { method: 'POST' }).catch(function () {});
+        var dir = 'data/workspace/overtime/output/' + _devSessionId + '/app';
+        fetch('/api/open-folder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: dir }),
+        }).catch(function () {});
       };
       logArea.appendChild(folderBtn);
+
+      // 처음으로 돌아가기 버튼
+      var homeBtn = document.createElement('button');
+      homeBtn.style.cssText = 'margin-top:8px;padding:10px 16px;background:none;border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:8px;color:var(--dim,#8b949e);cursor:pointer;font-size:14px;width:100%;';
+      homeBtn.textContent = '← 처음으로';
+      homeBtn.onclick = function () { _render(); };
+      logArea.appendChild(homeBtn);
     }
   }
 
