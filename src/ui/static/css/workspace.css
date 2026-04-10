@@ -1,0 +1,74 @@
+.ws-panel {
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: var(--card-bg, #fafafa);
+}
+.ws-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.ws-panel-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary, #666);
+}
+.ws-open-btn {
+  font-size: 12px;
+  padding: 2px 8px;
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+  color: var(--text-secondary, #666);
+}
+.ws-open-btn:hover {
+  background: var(--hover-bg, #f0f0f0);
+}
+.ws-file-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 24px;
+}
+.ws-file-chip {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  cursor: pointer;
+  background: var(--chip-bg-inactive, #eee);
+  color: var(--text-primary, #333);
+  border: 1px solid transparent;
+  transition: all 0.15s;
+}
+.ws-file-chip:hover {
+  background: var(--chip-bg-hover, #e0e0e0);
+}
+.ws-file-chip.selected {
+  background: var(--chip-bg-selected, #e8f0fe);
+  border-color: var(--primary, #4a90d9);
+  color: var(--primary, #4a90d9);
+  font-weight: 500;
+}
+.ws-empty {
+  font-size: 12px;
+  color: var(--text-tertiary, #999);
+  padding: 4px 0;
+}
+.ws-refresh-btn {
+  font-size: 11px;
+  padding: 1px 6px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-tertiary, #999);
+}
+.ws-refresh-btn:hover {
+  color: var(--text-primary, #333);
+}
