@@ -143,6 +143,9 @@
   color: var(--cv-text);
   font-weight: 600;
 }
+#card-header .ch-center {
+  flex: 1; display: flex; justify-content: flex-end; padding-right: 12px;
+}
 #card-header .ch-right {
   display: flex; align-items: center; gap: 10px;
 }

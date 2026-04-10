@@ -13,13 +13,12 @@ var UsageBar = (function () {
   var _timer = null;
 
   function mount() {
-    var target = document.querySelector('#card-header .ch-right');
+    var target = document.getElementById('ch-usage-area');
     if (!target) return;
 
     _el = document.createElement('div');
     _el.className = 'usage-bar-wrap';
-    // 중지 버튼 앞에 삽입
-    target.insertBefore(_el, target.firstChild);
+    target.appendChild(_el);
 
     _fetch();
     _timer = setInterval(_fetch, POLL_INTERVAL);
