@@ -155,7 +155,7 @@ class BuilderSession:
         self.history: list[dict[str, str]] = []
         self._bridge = get_bridge()
 
-    async def stream_response(self, user_message: str, ws) -> None:
+    async def stream_response(self, user_message: str, ws, workspace_files: list[str] | None = None) -> None:
         """Generate builder response and send over WebSocket.
 
         CLI bridge does not support token-by-token streaming, so we
@@ -163,7 +163,15 @@ class BuilderSession:
         Sends builder_stream tokens, then if team JSON is found,
         also sends a builder_team message.
         """
-        self.history.append({"role": "user", "content": user_message})
+        from src.utils.workspace import read_files_as_context
+
+        effective_message = user_message
+        if workspace_files:
+            file_ctx = read_files_as_context("builder", workspace_files)
+            if file_ctx:
+                effective_message = user_message + "\n\n" + file_ctx
+
+        self.history.append({"role": "user", "content": effective_message})
 
         # Build conversation context: include recent history in the user message
         # so the CLI bridge (single user_message) sees the full conversation.
@@ -171,7 +179,7 @@ class BuilderSession:
         for m in self.history[:-1]:  # all except the latest user message
             role_label = "User" if m["role"] == "user" else "Assistant"
             conv_parts.append(f"[{role_label}]: {m['content']}")
-        conv_parts.append(f"[User]: {user_message}")
+        conv_parts.append(f"[User]: {effective_message}")
         combined_message = "\n\n".join(conv_parts)
 
         full_text = ""
@@ -529,13 +537,21 @@ class StrategyBuilderSession:
         # 타입 변경 시 세션도 초기화 (새 시스템 프롬프트 적용 위해)
         self._cli_session_id = None
 
-    async def stream_response(self, user_message: str, ws) -> None:
+    async def stream_response(self, user_message: str, ws, workspace_files: list[str] | None = None) -> None:
         """전략 설계 응답 생성 및 WebSocket 전송.
 
         첫 호출에서는 새 session_id를 생성하고 시스템 프롬프트와 함께 전달.
         이후 호출은 --resume으로 동일 세션에 이어 붙이며 사용자 메시지만 전송.
         """
-        self.history.append({"role": "user", "content": user_message})
+        from src.utils.workspace import read_files_as_context
+
+        effective_message = user_message
+        if workspace_files:
+            file_ctx = read_files_as_context("builder", workspace_files)
+            if file_ctx:
+                effective_message = user_message + "\n\n" + file_ctx
+
+        self.history.append({"role": "user", "content": effective_message})
         system_prompt = build_strategy_prompt(self.strategy_type)
 
         # 첫 호출: 새 세션 시작 / 이후 호출: 기존 세션 resume
@@ -546,7 +562,7 @@ class StrategyBuilderSession:
         try:
             full_text = await self._bridge.raw_query(
                 system_prompt=system_prompt,
-                user_message=user_message,
+                user_message=effective_message,
                 model="sonnet",
                 allowed_tools=[],
                 max_turns=3,

@@ -508,8 +508,9 @@ async def company_builder_endpoint(ws: WebSocket):
 
             if msg_type == "builder_message":
                 content = msg.get("data", {}).get("content", "")
+                workspace_files = msg.get("data", {}).get("workspace_files", [])
                 if content:
-                    await session.stream_response(content, ws)
+                    await session.stream_response(content, ws, workspace_files=workspace_files)
 
             elif msg_type == "save_company":
                 company = msg.get("data", {})
@@ -649,8 +650,9 @@ async def company_builder_endpoint(ws: WebSocket):
 
             elif msg_type == "strategy_message":
                 content = msg.get("data", {}).get("content", "")
+                workspace_files = msg.get("data", {}).get("workspace_files", [])
                 if content:
-                    await strategy_session.stream_response(content, ws)
+                    await strategy_session.stream_response(content, ws, workspace_files=workspace_files)
 
             elif msg_type == "save_strategy":
                 strat = msg.get("data", {})
