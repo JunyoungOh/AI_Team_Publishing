@@ -167,9 +167,8 @@ class SimSession:
                     execution_mode = "team"
                     print(f"[TEAM-MODE] Loaded team '{pre_context.get('team_name')}' with {len(pre_context['team_agents'])} agents")
 
-            # output_format을 pre_context에 항상 포함
-            if self._output_format != "html":
-                pre_context["output_format"] = self._output_format
+            # output_format을 pre_context에 항상 포함 (UI 선택이 최우선)
+            pre_context["output_format"] = self._output_format
 
             from src.utils.workspace import read_files_as_context
 
@@ -186,6 +185,11 @@ class SimSession:
                 execution_mode=execution_mode,
                 pre_context=pre_context,
             )
+
+            # Start mode event drain before streaming (single_session emits
+            # activity events via emit_mode_event; drain must be active to
+            # forward them to the browser via WebSocket).
+            self._start_mode_event_drain()
 
             # Stream graph events
             await self._stream_graph(app, initial, config)

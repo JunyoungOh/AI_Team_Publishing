@@ -602,8 +602,9 @@ var CardView = (function () {
     var retries = 0;
     var sendStart = function () {
       if (_wsReady) {
+        var fmt = (_chatPanel && _chatPanel.getSelectedFormat) ? _chatPanel.getSelectedFormat() : 'html';
         var wsFiles = _wsPanel ? _wsPanel.getSelectedFiles() : [];
-        _sendWS({ type: 'start', task: text, strategy: strategy, workspace_files: wsFiles, workspace_mode: 'builder' });
+        _sendWS({ type: 'start', task: text, strategy: strategy, output_format: fmt, workspace_files: wsFiles, workspace_mode: 'builder' });
       } else if (retries < 50) {
         retries++;
         setTimeout(sendStart, 100);

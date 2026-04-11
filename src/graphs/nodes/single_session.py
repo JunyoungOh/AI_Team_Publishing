@@ -287,11 +287,8 @@ async def single_session_node(state: dict) -> dict:
         strategy=strategy.get("name") if strategy else None,
     )
 
-    # 출력 형식 (pre_context 또는 기본값)
+    # 출력 형식: UI 선택(pre_context.output_format)이 항상 최우선
     output_format = pre_context.get("output_format", "html")
-    if strategy and strategy.get("output_format"):
-        fmt_map = {"executive_report": "html", "summary": "markdown", "data_table": "csv", "presentation": "html"}
-        output_format = fmt_map.get(strategy["output_format"], output_format)
 
     # Delta 비교 / Append 모드
     previous_report_path = pre_context.get("previous_report_path")
