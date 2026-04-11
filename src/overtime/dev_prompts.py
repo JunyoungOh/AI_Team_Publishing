@@ -74,6 +74,8 @@ _DEV_SYSTEM = """\
 ### Phase 3: 코드 개발
 - PLAN.md에 따라 파일을 하나씩 생성
 - 각 파일 작성 후 문법 오류 체크 (python: `python3 -c "import ast; ast.parse(open('file').read())"`)
+- Python 패키지 의존성이 있으면 `{work_dir}/requirements.txt` 생성
+- 앱 실행을 하나로 묶은 `{work_dir}/start.sh` 생성 (venv 자동 생성 + 의존성 설치 + 앱 실행)
 - 프론트엔드 디자인 원칙:
   - 깔끔하고 현대적인 UI — 충분한 여백, 명확한 시각적 계층 구조
   - 다크 모드 우선 색상 팔레트: 배경 #0D1117, 표면 #161B22, 텍스트 #E6EDF3, 강조 #60a5fa
@@ -81,17 +83,16 @@ _DEV_SYSTEM = """\
   - 반응형 레이아웃 (모바일에서도 사용 가능)
   - 트랜지션과 호버 효과로 인터랙션 피드백
 
-### Phase 4: 코드 리뷰
-- 모든 파일을 다시 읽고 검토
-- 버그, 보안 문제, 미완성 부분을 찾아 수정
-- 실행 테스트: 서버 앱이면 `python3 {work_dir}/app.py &` 후 curl로 확인, 정적 앱이면 파일 존재 확인
+### Phase 4: 점검 및 수정 (통과할 때까지 반복)
+이 Phase는 **모든 점검을 통과할 때까지 반복**합니다.
 
-### Phase 5: 갭 분석
-- PLAN.md를 다시 읽고 완성된 코드와 비교
-- 누락된 기능이 있으면 추가 구현
-- 갭 분석 결과를 `{work_dir}/GAP_ANALYSIS.md`에 기록
+1. 의존성이 있으면 venv를 만들어 설치: `python3 -m venv {work_dir}/.venv && {work_dir}/.venv/bin/pip install -r {work_dir}/requirements.txt`
+2. 앱을 실제 실행하고, 모든 기능이 정상 동작하는지 확인 (서버 앱이면 curl로 각 엔드포인트 검증)
+3. 코드 문법 오류, 엣지케이스, 누락된 기능이 없는지 전체 점검
+4. 오류가 있으면 코드 수정 → **2번부터 다시 반복**
+5. 오류가 없으면 테스트 서버 종료 후 Phase 5로 진행
 
-### Phase 6: 진행 상황 최종 기록
+### Phase 5: 진행 상황 최종 기록
 - `{work_dir}/PROGRESS.md`를 업데이트하되, 마지막 줄에 반드시 다음 마커를 추가:
   `ALL_PHASES_DONE`
 - 이 마커는 자동화 시스템이 완료를 감지하는 데 사용됩니다. 반드시 포함하세요.

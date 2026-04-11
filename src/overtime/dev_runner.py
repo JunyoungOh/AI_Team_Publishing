@@ -151,21 +151,39 @@ async def generate_clarify_questions(
     _emit(session_id, "clarify", "generating", message="명확화 질문 생성 중")
 
     bridge = get_bridge()
-    try:
-        result: DevClarifyQuestions = await bridge.structured_query(
-            system_prompt=system,
-            user_message=user,
-            output_schema=DevClarifyQuestions,
-            model=settings.worker_model,
-            allowed_tools=[],
-            timeout=120,
-        )
-        # 번호 매긴 질문 텍스트로 변환
-        lines = [f"{i+1}. {q}" for i, q in enumerate(result.questions)]
-        return "\n".join(lines)
-    except Exception as e:
-        _logger.warning("clarify_structured_error", error=str(e))
-        return "질문 생성에 실패했습니다. 자유롭게 설명을 추가해주세요."
+    # circuit breaker가 이전 작업 실패로 열려있을 수 있으므로 리셋
+    bridge._circuit.record_success()
+
+    last_error = None
+    for attempt in range(2):
+        try:
+            result: DevClarifyQuestions = await bridge.structured_query(
+                system_prompt=system,
+                user_message=user,
+                output_schema=DevClarifyQuestions,
+                model=settings.worker_model,
+                allowed_tools=[],
+                timeout=120,
+            )
+            lines = [f"{i+1}. {q}" for i, q in enumerate(result.questions)]
+            return "\n".join(lines)
+        except Exception as e:
+            last_error = e
+            _logger.warning(
+                "clarify_structured_error",
+                attempt=attempt + 1,
+                error_type=type(e).__name__,
+                error=str(e)[:500],
+            )
+            if attempt == 0:
+                await asyncio.sleep(2)
+
+    _logger.error(
+        "clarify_all_attempts_failed",
+        error_type=type(last_error).__name__,
+        error=str(last_error)[:500],
+    )
+    return "질문 생성에 실패했습니다. 자유롭게 설명을 추가해주세요."
 
 
 async def run_dev_overtime(

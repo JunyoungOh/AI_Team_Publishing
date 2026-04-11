@@ -10,7 +10,7 @@ from src.overtime.dev_runner import _get_rate_limit_wait, _COMPLETION_MARKER, MA
 
 def test_dev_system_prompt_contains_all_phases():
     prompt = build_dev_system_prompt("test app", "answers", "/tmp/t")
-    for phase in ["Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5", "Phase 6"]:
+    for phase in ["Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5"]:
         assert phase in prompt
 
 
