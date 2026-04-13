@@ -252,33 +252,20 @@ class StepProgress:
 # tau=0 means no progress bar (user-wait or delegated to worker dashboard).
 _NODE_TAU: dict[str, float] = {
     "intake": 2,
-    "ceo_route": 30,
     "ceo_questions": 20,
     "await_user_answers": 0,
-    "ceo_task_decomposition": 90,
-    "worker_execution": 0,
+    "single_session": 0,
     "user_review_results": 0,
-    "worker_result_revision": 60,
-    "ceo_final_report": 50,
-    "report_review": 30,
-    "ceo_report_revise": 40,
     "error_terminal": 1,
 }
 
 # Node display labels (shared between guards.py decorator and main.py UI)
 NODE_LABELS: dict[str, str] = {
     "intake": "작업 접수",
-    "ceo_route": "CEO 도메인 라우팅",
-    "ceo_questions": "CEO 질문 생성",
-    "await_user_answers": "사용자 답변 접수",
-    "ceo_task_decomposition": "CEO 작업 분해",
-    "worker_execution": "워커 실행",
+    "ceo_questions": "명확화 질문 생성",
+    "await_user_answers": "사용자 답변 대기",
     "single_session": "AI가 정보를 수집하고 보고서를 작성하고 있습니다",
-    "ceo_final_report": "CEO 최종 보고서",
-    "report_review": "보고서 리뷰",
-    "ceo_report_revise": "보고서 수정",
     "user_review_results": "사용자 결과 리뷰",
-    "worker_result_revision": "결과 보완",
     "error_terminal": "오류 종료",
 }
 

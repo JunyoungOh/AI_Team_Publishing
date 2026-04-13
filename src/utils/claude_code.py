@@ -363,6 +363,11 @@ _BUILTIN_TOOLS = frozenset({
     "StructuredOutput",  # Internal tool added by --json-schema
 })
 
+# 빈 allowed_tools=[]를 CLI에 전달할 때 쓰는 더미 이름.
+# 빈 문자열은 CLI hang을 유발하므로 매칭되지 않는 가짜 이름을 1개 넘겨
+# "허용된 툴이 0개"인 상태를 만든다. 이름이 변하면 안 됨 — 빌트인과 충돌 금지.
+_NO_TOOLS_SENTINEL = "__none_no_tools_allowed__"
+
 
 def _all_builtin(tools: list[str] | None) -> bool:
     """Return True if all tools are Claude Code built-ins (no MCP needed)."""
@@ -702,6 +707,7 @@ class ClaudeCodeBridge:
         session_id: str | None = None,
         resume: str | None = None,
         extra_dirs: list[str] | None = None,
+        on_event: "Callable[[dict], Any] | None" = None,
     ) -> str:
         """Run Claude Code and return the full text from all assistant turns.
 
@@ -740,8 +746,11 @@ class ClaudeCodeBridge:
             cmd.extend(["--resume", resume])
         if effort:
             cmd.extend(["--effort", effort])
-        if allowed_tools:
-            cmd.extend(["--allowedTools", ",".join(allowed_tools)])
+        if allowed_tools is not None:
+            # allowed_tools=[] → 모든 툴 차단(센티넬 1개만 화이트리스트).
+            # 빈 문자열은 CLI hang 유발하므로 가짜 이름을 1개 넘긴다.
+            tools_arg = ",".join(allowed_tools) if allowed_tools else _NO_TOOLS_SENTINEL
+            cmd.extend(["--allowedTools", tools_arg])
             # Headless mode (-p) has no TTY for permission prompts.
             # --permission-mode auto pre-approves tools in --allowedTools.
             cmd.extend(["--permission-mode", "auto"])
@@ -754,6 +763,12 @@ class ClaudeCodeBridge:
             (allowed_tools is not None and len(allowed_tools) == 0)
             or _all_builtin(allowed_tools)
         )
+
+        if on_event is not None:
+            return await self._run_subprocess_streaming(
+                cmd, timeout=timeout, skip_mcp=skip_mcp, on_event=on_event,
+            )
+
         raw = await self._run_subprocess(cmd, timeout=timeout, skip_mcp=skip_mcp)
         return _extract_all_assistant_text(raw)
 
@@ -1065,10 +1080,13 @@ class ClaudeCodeBridge:
             cmd.extend(["--effort", effort])
         if max_turns is not None:
             cmd.extend(["--max-turns", str(max_turns)])
-        if allowed_tools:
+        if allowed_tools is not None:
             # allowed_tools=["Read", ...] → "--allowedTools Read,Write,..."
-            # allowed_tools=[] or None → flag omitted (Claude Code default)
-            cmd.extend(["--allowedTools", ",".join(allowed_tools)])
+            # allowed_tools=[] → 센티넬 1개만 화이트리스트해서 모든 툴 차단
+            #   (빈 문자열은 CLI hang 유발이라 사용 불가).
+            # allowed_tools=None → flag omitted (Claude Code default, all tools).
+            tools_arg = ",".join(allowed_tools) if allowed_tools else _NO_TOOLS_SENTINEL
+            cmd.extend(["--allowedTools", tools_arg])
             # Headless mode (-p) has no TTY for permission prompts.
             # --permission-mode auto pre-approves tools listed in --allowedTools
             # so workers don't get "권한 미허용" errors for WebSearch/WebFetch etc.
@@ -1171,6 +1189,94 @@ class ClaudeCodeBridge:
             raise ClaudeCodeError(
                 f"Schema validation failed for {output_schema.__name__}: {e}"
             ) from e
+
+    @staticmethod
+    async def _run_subprocess_streaming(
+        cmd: list[str], *, timeout: int, skip_mcp: bool = False,
+        on_event: "Callable[[dict], Any]",
+    ) -> str:
+        """Execute with line-by-line NDJSON streaming and on_event callbacks."""
+        import time as _t
+
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+        cwd: str | None = "/tmp" if skip_mcp else (
+            os.environ.get("ENTERPRISE_AGENT_ROOT") or None
+        )
+
+        _no_plugin_dir = "/tmp/claude-no-plugins"
+        os.makedirs(_no_plugin_dir, exist_ok=True)
+        cmd = list(cmd)
+        cmd.extend(["--plugin-dir", _no_plugin_dir])
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+            cwd=cwd,
+            start_new_session=True,
+        )
+        _register_process(proc)
+
+        texts: list[str] = []
+        result_text = ""
+        t0 = _t.monotonic()
+
+        try:
+            async with asyncio.timeout(timeout):
+                async for raw_line in proc.stdout:
+                    line = raw_line.decode("utf-8", errors="replace").strip()
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    event_type = event.get("type")
+                    elapsed = round(_t.monotonic() - t0, 1)
+
+                    if event_type == "assistant":
+                        message = event.get("message", {})
+                        for block in message.get("content", []):
+                            if not isinstance(block, dict):
+                                continue
+                            if block.get("type") == "text":
+                                texts.append(block["text"])
+                            elif block.get("type") == "tool_use":
+                                tool_name = block.get("name", "")
+                                tool_input = block.get("input", {})
+                                cb_result = on_event({
+                                    "action": "tool_use",
+                                    "tool": tool_name,
+                                    "input": tool_input,
+                                    "elapsed": elapsed,
+                                })
+                                if asyncio.iscoroutine(cb_result):
+                                    await cb_result
+
+                    elif event_type == "result":
+                        if event.get("is_error"):
+                            err_text = event.get("result", "Unknown error")
+                            if not texts:
+                                raise ClaudeCodeError(err_text)
+                        result_text = event.get("result", "")
+
+        except TimeoutError:
+            logger.warning("streaming_subprocess_timeout", timeout=timeout)
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+
+        await proc.wait()
+        _unregister_process(proc)
+
+        if texts:
+            return _strip_insight_blocks("\n".join(texts))
+        if result_text:
+            return _strip_insight_blocks(result_text)
+        return ""
 
     @staticmethod
     async def _run_subprocess(

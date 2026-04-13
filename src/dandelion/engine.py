@@ -6,11 +6,12 @@ import json
 import logging
 import re
 
+from src.config.settings import get_settings
 from src.utils.bridge_factory import get_bridge
+from src.utils.guards import safe_gather
 from src.dandelion.schemas import (
     DandelionTree, Theme, ThemeAssignment, Seed, THEME_COLORS,
 )
-from src.dandelion.supervisor import ThemeSupervisor
 from src.dandelion.imaginer import Imaginer
 from src.dandelion.prompts.ceo import CLARIFY_SYSTEM, THEME_DECISION_SYSTEM, build_ceo_user_message
 
@@ -22,21 +23,17 @@ _CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*\n?(.*?)\n?```\s*$", re.DOTALL)
 
 
 def _strip_code_fence(text: str) -> str:
-    """Strip markdown code fences (```json ... ```) from LLM responses."""
     m = _CODE_FENCE_RE.match(text.strip())
     return m.group(1).strip() if m else text.strip()
 
 
 class DandelionEngine:
-    """Orchestrates: CEO → Researcher → Imaginers (real-time seed streaming)."""
+    """Orchestrates: CEO (themes) → 4 theme sessions (research+imagine, 2 parallel) → Report."""
 
     def __init__(self, ws):
         self._ws = ws
         self._cancelled = False
-        self._semaphore = asyncio.Semaphore(10)
         self._bridge = get_bridge()
-        # Supervisor/Imaginer now use CLI bridge internally
-        self._supervisor = ThemeSupervisor()
         self._imaginer = Imaginer()
 
     def cancel(self):
@@ -63,7 +60,6 @@ class DandelionEngine:
             return []
 
     async def _progress(self, step: int, label: str, current: int = 0, total: int = 0):
-        """Send progress update to frontend."""
         try:
             await self._ws.send_json({
                 "type": "progress",
@@ -76,10 +72,12 @@ class DandelionEngine:
             pass
 
     async def run(self, query: str, files: list[str], clarify_answers: dict[str, str] | None = None) -> DandelionTree | None:
-        """Run the full dandelion pipeline. Returns a DandelionTree on success."""
+        """Run the full dandelion pipeline."""
         from datetime import datetime
 
-        # Stage 1: Theme decision
+        settings = get_settings()
+
+        # Stage 1: Theme decision (Sonnet, no tools)
         await self._progress(1, "테마 결정 중...")
         assignment = await self._decide_themes(query, files, clarify_answers)
         themes_dicts = [t.to_ws_dict() for t in assignment.themes]
@@ -88,45 +86,165 @@ class DandelionEngine:
         if self._cancelled:
             return None
 
-        # Stage 2: Single researcher collects data
-        await self._progress(2, "데이터 수집 중...")
-        research_packet = await self._supervisor.research(assignment.themes, assignment.common_context)
-        logger.info("research_done packet_len=%d", len(research_packet))
+        # Stage 2+3: Research & Imagination (2 themes at a time)
+        n_per_theme = settings.dandelion_seeds_per_theme
+        total_seeds = len(assignment.themes) * n_per_theme
+        await self._progress(2, "리서치 & 상상 중...", 0, total_seeds)
 
-        if self._cancelled:
-            return None
-
-        # Stage 3: Haiku imagination — seeds stream in real-time as each completes
-        self._imagine_done = 0
-        self._collected_seeds: list[Seed] = []
-        await self._progress(3, "상상 중...", 0, 40)
-        results = await asyncio.gather(*[
-            self._run_theme_imaginations(theme, research_packet)
+        coros = [
+            self._run_theme_session(theme, assignment.common_context, total_seeds)
             for theme in assignment.themes
-        ], return_exceptions=True)
+        ]
+        results = await safe_gather(
+            coros,
+            timeout_seconds=settings.dandelion_session_timeout,
+            description="dandelion_themes",
+            max_concurrency=settings.dandelion_max_concurrency,
+        )
 
-        # Report errors for failed themes
-        for theme, result in zip(assignment.themes, results):
-            if isinstance(result, Exception):
-                logger.error("theme_failed theme=%s error=%s", theme.id, result)
+        # Collect seeds from results
+        all_seeds: list[Seed] = []
+        for theme, (success, result) in zip(assignment.themes, results):
+            if success and isinstance(result, list):
+                for img in result:
+                    if img.title == "상상 생성 실패":
+                        continue
+                    seed = Seed(
+                        id=img.id,
+                        theme_id=img.theme_id,
+                        title=img.title,
+                        summary=img.summary,
+                        detail=img.detail,
+                        time_months=img.time_months,
+                        weight=1,
+                        source_count=1,
+                    )
+                    all_seeds.append(seed)
+            else:
+                error = result if not success else "unknown"
+                logger.error("theme_failed theme=%s error=%s", theme.id, error)
                 try:
                     await self._ws.send_json({
                         "type": "theme_error",
                         "theme_id": theme.id,
-                        "message": str(result),
+                        "message": str(error),
                     })
                 except Exception:
                     pass
 
+        # Send all seeds to frontend
+        await self._progress(3, "상상 완료", total_seeds, total_seeds)
+        for seed in all_seeds:
+            try:
+                await self._ws.send_json({
+                    "type": "seed",
+                    "theme_id": seed.theme_id,
+                    "seed": seed.to_ws_dict(),
+                })
+            except Exception:
+                pass
+
         tree = DandelionTree(
             query=query,
             themes=assignment.themes,
-            seeds=self._collected_seeds,
+            seeds=all_seeds,
             created_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
         )
 
+        # Stage 4: Auto-generate report
+        await self._progress(4, "리포트 생성 중...")
+        await self._generate_report(tree)
+
         await self._ws.send_json({"type": "complete"})
         return tree
+
+    async def _run_theme_session(
+        self, theme: Theme, common_context: str, total_seeds: int,
+    ) -> list:
+        """Run one theme session: research + imagine in a single CLI call."""
+        if self._cancelled:
+            return []
+
+        async def _on_event(event: dict):
+            """Stream tool_use events to frontend via WebSocket."""
+            if event.get("action") != "tool_use":
+                return
+            tool = event.get("tool", "")
+            tool_input = event.get("input", {})
+            elapsed = event.get("elapsed", 0)
+
+            if tool == "WebSearch":
+                query = tool_input.get("query", tool_input.get("search_query", ""))
+                label = f"🔍 {theme.name}: '{query}' 검색 중..."
+            elif tool == "WebFetch":
+                url = tool_input.get("url", "")
+                # Truncate long URLs
+                short_url = url[:60] + "..." if len(url) > 60 else url
+                label = f"📄 {theme.name}: {short_url} 읽는 중..."
+            else:
+                label = f"⚙️ {theme.name}: {tool} 실행 중..."
+
+            try:
+                await self._ws.send_json({
+                    "type": "session_log",
+                    "theme_id": theme.id,
+                    "label": label,
+                    "elapsed": elapsed,
+                })
+            except Exception:
+                pass
+
+        result = await self._imaginer.research_and_imagine(
+            theme_id=theme.id,
+            theme_name=theme.name,
+            theme_description=theme.description,
+            common_context=common_context,
+            on_event=_on_event,
+        )
+
+        done_count = len([img for img in result if img.title != "상상 생성 실패"])
+        logger.info("theme_session_done theme=%s seeds=%d", theme.id, done_count)
+
+        # Notify theme completion
+        try:
+            await self._ws.send_json({
+                "type": "session_log",
+                "theme_id": theme.id,
+                "label": f"✅ {theme.name}: {done_count}개 상상 완료",
+                "elapsed": 0,
+            })
+        except Exception:
+            pass
+
+        return result
+
+    async def _generate_report(self, tree: DandelionTree):
+        """Generate HTML report and notify frontend."""
+        try:
+            from src.dandelion.report import generate_html_report
+            import tempfile
+            import os
+
+            html = generate_html_report(tree)
+            report_dir = tempfile.mkdtemp(prefix="dandelion_report_")
+            report_path = os.path.join(report_dir, "foresight.html")
+            with open(report_path, "w", encoding="utf-8") as f:
+                f.write(html)
+
+            logger.info("report_generated path=%s", report_path)
+            await self._ws.send_json({
+                "type": "export_ready",
+                "url": f"/download?path={report_path}",
+            })
+        except Exception as exc:
+            logger.error("report_generation_failed error=%s", exc)
+            try:
+                await self._ws.send_json({
+                    "type": "export_error",
+                    "message": f"리포트 생성 실패: {exc}",
+                })
+            except Exception:
+                pass
 
     async def _decide_themes(self, query: str, files: list[str], clarify_answers: dict[str, str] | None = None) -> ThemeAssignment:
         """Stage 1: Sonnet decides 4 themes."""
@@ -172,58 +290,3 @@ class DandelionEngine:
             common_context=data.get("common_context", query),
             user_query=query,
         )
-
-    async def _run_theme_imaginations(self, theme: Theme, research_packet: str):
-        """Run 10 Haiku imaginers for one theme — each seed streamed immediately."""
-        if self._cancelled:
-            return
-
-        await asyncio.gather(*[
-            self._imagine_and_stream(theme, research_packet, i)
-            for i in range(10)
-        ])
-
-    async def _imagine_and_stream(self, theme: Theme, research_packet: str, index: int):
-        """Imagine one future and stream the seed to frontend immediately."""
-        await asyncio.sleep(index * 0.2)  # Stagger to avoid burst
-        async with self._semaphore:
-            if self._cancelled:
-                return
-
-            imagination = await self._imaginer.imagine(
-                theme_id=theme.id,
-                theme_name=theme.name,
-                theme_description=theme.description,
-                context_packet=research_packet,
-                agent_index=index,
-            )
-
-            self._imagine_done += 1
-            await self._progress(3, "상상 중...", self._imagine_done, 40)
-
-            # Skip failed imaginations
-            if imagination.title == "상상 생성 실패":
-                return
-
-            # Convert Imagination → Seed and stream immediately
-            seed = Seed(
-                id=imagination.id,
-                theme_id=imagination.theme_id,
-                title=imagination.title,
-                summary=imagination.summary,
-                detail=imagination.detail,
-                time_months=imagination.time_months,
-                weight=1,
-                source_count=1,
-            )
-
-            self._collected_seeds.append(seed)
-
-            try:
-                await self._ws.send_json({
-                    "type": "seed",
-                    "theme_id": theme.id,
-                    "seed": seed.to_ws_dict(),
-                })
-            except Exception:
-                pass

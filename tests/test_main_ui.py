@@ -97,12 +97,7 @@ class TestNodeLabels:
     """Verify all graph nodes have display labels."""
 
     EXPECTED_NODES = [
-        "intake", "ceo_route", "ceo_questions",
-        "await_user_answers", "ceo_task_decomposition",
-        "worker_execution",
-        "ceo_final_report", "user_review_results",
-        "worker_result_revision",
-        "error_terminal",
+        "intake", "single_session", "user_review_results", "error_terminal",
     ]
 
     def test_all_nodes_have_labels(self):
@@ -119,26 +114,10 @@ class TestNodeLabels:
 
 
 class TestParallelNodes:
-    """Verify parallel node set matches the actual parallel implementations."""
+    """싱글 세션 모드는 병렬 노드 개념이 없어 _PARALLEL_NODES는 항상 비어 있다."""
 
-    EXPECTED_PARALLEL = [
-        "ceo_task_decomposition", "worker_execution",
-        "worker_result_revision",
-    ]
-
-    def test_all_parallel_nodes_listed(self):
-        for node in self.EXPECTED_PARALLEL:
-            assert node in _PARALLEL_NODES, f"Missing parallel node: {node}"
-
-    def test_parallel_nodes_are_subset_of_all_nodes(self):
-        for node in _PARALLEL_NODES:
-            assert node in NODE_LABELS, f"Parallel node '{node}' not in NODE_LABELS"
-
-    def test_non_parallel_nodes_excluded(self):
-        """Nodes that should NOT be in _PARALLEL_NODES."""
-        non_parallel = ["intake", "ceo_route", "ceo_final_report"]
-        for node in non_parallel:
-            assert node not in _PARALLEL_NODES
+    def test_parallel_nodes_is_empty(self):
+        assert _PARALLEL_NODES == set()
 
 
 # ── _print_hierarchy ────────────────────────────────────

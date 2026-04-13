@@ -50,11 +50,9 @@ console = Console()
 
 # ── Node display labels (from progress.py shared dict) ───
 
-# Nodes that execute tasks in parallel (multiple workers or leaders)
-_PARALLEL_NODES = {
-    "ceo_task_decomposition", "worker_execution",
-    "worker_result_revision",
-}
+# Nodes that execute tasks in parallel (kept for UI tracker API compatibility).
+# 싱글 세션 모드에서는 병렬 노드 개념이 없음 — 빈 세트.
+_PARALLEL_NODES: set[str] = set()
 
 # Mutable state for tracking UI across stream calls
 _ui_state: dict = {"last_node": None, "step": 0}

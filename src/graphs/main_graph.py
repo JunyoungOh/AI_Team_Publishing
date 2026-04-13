@@ -1,16 +1,15 @@
-"""Main graph assembly - unified team-based pipeline.
+"""Main graph assembly - single session pipeline with clarify branch.
 
-Flow (P-E-S-R architecture):
-  [START] → intake → ceo_route → ceo_questions → await_user_answers
-          → ceo_task_decomposition → worker_execution (P-E-S-R loop inside)
-          → ceo_final_report (Reporter: HTML formatting only)
-          → user_review_results → END
-          → worker_result_revision → ceo_final_report
+Flow:
+  [START] → intake → (strategy 있음 → single_session)
+                   → (strategy 없음 → ceo_questions → await_user_answers → single_session)
+          single_session → user_review_results → END
+                         ↘ error_terminal → END
 
-P-E-S-R loop (inside worker_execution):
-  Planner → Executor(s) → Synthesizer → Reviewer → (loop if FAIL)
-
-Error handling: Any node can set phase="error", which routes to error_terminal → END.
+전략(나만의 방식) 경로: 전략이 이미 관점과 범위를 정의하므로 clarify 단계
+없이 바로 실행. 인스턴트 모드: 모호한 태스크를 명확화 질문으로 구체화한 뒤
+single_session에 전달. single_session_node가 태스크·전략·답변을 모두
+받아 단일 CLI 세션으로 분석·보고서 작성까지 수행.
 """
 
 from __future__ import annotations
@@ -19,18 +18,12 @@ from langchain_core.messages import AIMessage
 
 from src.engine import PipelineEngine
 
-from src.models.state import EnterpriseAgentState
 from src.graphs.nodes import (
     intake_node,
-    ceo_route_node,
     ceo_questions_node,
     await_user_answers_node,
-    worker_execution_node,
-    ceo_final_report_node,
     user_review_results_node,
-    worker_result_revision_node,
 )
-from src.graphs.nodes.ceo_task_decomposition import ceo_task_decomposition_node
 from src.graphs.nodes.single_session import single_session_node
 
 
@@ -45,7 +38,6 @@ def error_terminal_node(state: dict) -> dict:
     session_id = state.get("session_id", "unknown")
     user_task = state.get("user_task", "")
 
-    # Generate emergency error report
     report_path = ""
     try:
         report_dir = os.path.join("data/reports", session_id)
@@ -89,70 +81,38 @@ def _route_or_error(next_node: str):
 
 
 def _route_after_intake(state: dict) -> str:
-    """싱글 세션 모드: CEO 라우팅 스킵 → 바로 질문 생성."""
+    """전략이 있으면 clarify 단계를 건너뛰고 바로 실행, 없으면 명확화 질문 생성.
+
+    - 나만의 방식 모드: 저장된 전략이 이미 관점/범위/특별지시를 담고 있으므로
+      generic clarify를 물어봐야 할 이유가 없다. 바로 single_session으로.
+    - 인스턴트 모드: 사용자 지시가 모호할 수 있으므로 CEO가 명확화 질문을
+      생성하고 답변을 받은 뒤 single_session으로.
+    """
     if state.get("phase") == "error":
         return "error_terminal"
-    from src.config.settings import get_settings
-    if get_settings().use_single_session:
-        return "ceo_questions"
-    return "ceo_route"
-
-
-def _route_after_user_answers(state: dict) -> str:
-    """싱글 세션 모드 vs 레거시 파이프라인 분기."""
-    if state.get("phase") == "error":
-        return "error_terminal"
-    from src.config.settings import get_settings
-    if get_settings().use_single_session:
+    pre_context = state.get("pre_context") or {}
+    if pre_context.get("strategy"):
         return "single_session"
-    return "ceo_task_decomposition"
-
-
-def _route_after_user_review(state: dict) -> str:
-    if state.get("phase") == "error":
-        return "error_terminal"
-    if state.get("phase") == "worker_result_revision":
-        return "worker_result_revision"
-    return "__end__"
+    return "ceo_questions"
 
 
 def _build_engine() -> PipelineEngine:
-    """Build the enterprise agent PipelineEngine (uncompiled).
-
-    Unified flow (same as builder mode, but ephemeral team):
-      intake → ceo_route → ceo_questions → await_user_answers
-      → ceo_task_decomposition → worker_execution
-      → ceo_final_report → report_review → user_review_results → END
-    """
+    """Build the pipeline engine."""
     engine = PipelineEngine()
 
-    # ── Register all nodes ──────────────────────────────
     engine.add_node("intake", intake_node)
-    engine.add_node("ceo_route", ceo_route_node)
     engine.add_node("ceo_questions", ceo_questions_node)
     engine.add_node("await_user_answers", await_user_answers_node)
-    engine.add_node("ceo_task_decomposition", ceo_task_decomposition_node)
-    engine.add_node("worker_execution", worker_execution_node)
-    engine.add_node("ceo_final_report", ceo_final_report_node)  # Reporter role (HTML formatting)
-    engine.add_node("single_session", single_session_node)  # 싱글 CLI 세션 모드
+    engine.add_node("single_session", single_session_node)
     engine.add_node("user_review_results", user_review_results_node)
-    engine.add_node("worker_result_revision", worker_result_revision_node)
     engine.add_node("error_terminal", error_terminal_node)
 
-    # ── Entry + routers ────────────
-    # P-E-S-R 루프는 worker_execution 내부에서 처리됨
-    # report_review/ceo_report_revise 제거 — Reviewer가 루프 내에서 이미 검증 완료
     engine.set_entry("intake")
     engine.set_router("intake", _route_after_intake)
-    engine.set_router("ceo_route", _route_or_error("ceo_questions"))
     engine.set_router("ceo_questions", _route_or_error("await_user_answers"))
-    engine.set_router("await_user_answers", _route_after_user_answers)
-    engine.set_router("ceo_task_decomposition", _route_or_error("worker_execution"))
+    engine.set_router("await_user_answers", _route_or_error("single_session"))
     engine.set_router("single_session", _route_or_error("user_review_results"))
-    engine.set_router("worker_execution", _route_or_error("ceo_final_report"))
-    engine.set_router("ceo_final_report", _route_or_error("user_review_results"))
-    engine.set_router("user_review_results", _route_after_user_review)
-    engine.set_router("worker_result_revision", _route_or_error("ceo_final_report"))
+    engine.set_router("user_review_results", lambda s: "__end__")
     engine.set_router("error_terminal", lambda s: "__end__")
 
     return engine

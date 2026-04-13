@@ -122,7 +122,7 @@ class Settings(BaseSettings):
     reporter_max_turns: int = 12        # CEO report: rich report_html with labeled data
 
     # Single Session Mode (싱글 CLI 세션으로 전체 실행)
-    use_single_session: bool = False          # True = 싱글 세션 모드 활성화
+    # 메인 파이프라인은 항상 싱글 세션 모드로 동작. 레거시 다중 워커 경로는 제거됨.
     # Base timeout (초) — single_session_node에서 complexity에 따라 0.7~1.5배 스케일.
     # 5관점 이상 전략의 병렬 리서치 + HTML 합성에 필요한 넉넉한 여유 확보.
     single_session_timeout: int = 1200        # 싱글 세션 기본 타임아웃 (20분)
@@ -277,6 +277,13 @@ class Settings(BaseSettings):
     foresight_supervisor_threshold: float = 0.2  # 스프레드 > 이 값이면 Supervisor 호출
     foresight_session_ttl_minutes: int = 30   # 비활성 세션 자동 정리
     foresight_max_storage_per_user_mb: int = 200  # 1인당 환경 저장 한도 (Railway Pro 기준)
+
+    # ── Dandelion (Imagination) ──
+    dandelion_imaginer_model: str = "haiku"     # 테마 세션 모델 (Haiku = 빠름, Sonnet = 깊이)
+    dandelion_seeds_per_theme: int = 10         # 테마당 상상 개수
+    dandelion_session_timeout: int = 180        # 테마 세션 타임아웃 (리서치+상상, 초)
+    dandelion_max_concurrency: int = 2          # 동시 테마 세션 수
+    dandelion_max_turns: int = 8                # 세션당 최대 턴 수
 
     # ── Roundtable ──
     roundtable_model: str = "sonnet"

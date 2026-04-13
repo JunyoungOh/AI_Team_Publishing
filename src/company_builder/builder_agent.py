@@ -565,7 +565,7 @@ class StrategyBuilderSession:
                 user_message=effective_message,
                 model="sonnet",
                 allowed_tools=[],
-                max_turns=3,
+                max_turns=1,
                 timeout=120,
                 session_id=self._cli_session_id if is_first_turn else None,
                 resume=self._cli_session_id if not is_first_turn else None,

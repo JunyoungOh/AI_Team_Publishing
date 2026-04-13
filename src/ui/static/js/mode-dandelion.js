@@ -35,6 +35,7 @@ function _initDandelion() {
     else if (msg.type === 'complete') _dlOnComplete();
     else if (msg.type === 'theme_error') _dlOnThemeError(msg.theme_id, msg.message);
     else if (msg.type === 'error') _dlOnError(msg.message);
+    else if (msg.type === 'session_log') _dlShowSessionLog(msg.label);
     else if (msg.type === 'export_ready') _dlDownloadReport(msg.url);
     else if (msg.type === 'export_error') _dlOnError(msg.message);
   };
@@ -63,7 +64,7 @@ function _dlSend() {
 
 // ── Progress bar (replaces input area) ────────────
 
-var _dlStepNames = ['', '테마 결정', '데이터 수집', '상상', '정리'];
+var _dlStepNames = ['', '테마 결정', '데이터 수집', '상상', '리포트'];
 
 function _dlShowProgressBar() {
   var inputArea = document.getElementById('dandelion-input-area');
@@ -150,6 +151,11 @@ function _dlShowLoading(text) {
 function _dlHideLoading() {
   var el = document.getElementById('dandelion-loading');
   if (el) el.classList.remove('show');
+}
+
+function _dlShowSessionLog(label) {
+  var el = document.getElementById('dandelion-loading');
+  if (el) { el.textContent = label; el.classList.add('show'); }
 }
 
 // ── Clarification ─────────────────────────────────
