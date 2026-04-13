@@ -831,6 +831,15 @@ html[data-theme="light"] #theme-toggle .theme-icon-moon { display: block; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
+/* 하트비트 — 침묵 중 in-place 갱신되는 생존 신호 라벨 */
+.ad-feed-item.ad-feed-heartbeat {
+  font-style: italic;
+  opacity: 0.75;
+  background: transparent;
+  border-left: 2px solid var(--cv-accent);
+  animation: none;  /* 갱신마다 깜빡이지 않도록 */
+}
+
 /* ── 8c-2. Strategy View (builder mode) ── */
 #strategy-view {
   position: absolute; inset: 60px 24px 24px;

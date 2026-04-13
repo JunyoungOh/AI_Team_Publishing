@@ -284,6 +284,7 @@ var CardEventHandler = (function () {
 
   var _toolStats = {};    // { toolName: { count, icon, label, active } }
   var _activityFeed = []; // recent detail texts (max 4)
+  var _heartbeatText = null; // 침묵 중 AI 작업 상태 라벨 (in-place 갱신, 피드에 안 쌓임)
   var _activityTimer = null;
   var _activityStart = 0;
 
@@ -371,11 +372,44 @@ var CardEventHandler = (function () {
         _activityFeed.push(d.detail);
         if (_activityFeed.length > 4) _activityFeed.shift();
       }
+      _heartbeatText = null;
+    }
+
+    if (d.action === 'tool_done') {
+      var doneTool = d.tool || '';
+      if (_HIDDEN_TOOLS[doneTool]) return;
+      // tool_use에서 만든 통계 카드의 active 플래그를 내림 (카드는 유지)
+      if (_toolStats[doneTool]) {
+        _toolStats[doneTool].active = false;
+      }
+      // 완료 라벨(정량 포함 또는 실패 ⚠️)을 피드에 한 줄 추가
+      if (d.message) {
+        _activityFeed.push(d.message);
+        if (_activityFeed.length > 4) _activityFeed.shift();
+      }
+      _heartbeatText = null;
+    }
+
+    if (d.action === 'narration') {
+      // 모델의 텍스트 응답 발췌(💭 prefix 포함)를 피드에 추가
+      if (d.message) {
+        _activityFeed.push(d.message);
+        if (_activityFeed.length > 4) _activityFeed.shift();
+        // 일반 활동이 발생했으니 하트비트 라벨은 비움 (다시 침묵하면 재등장)
+        _heartbeatText = null;
+      }
+    }
+
+    if (d.action === 'heartbeat') {
+      // 침묵 중 생존 신호 — 피드 하단에 in-place 갱신
+      // 실제 활동(tool_use/tool_done/narration) 발생 시 null로 초기화
+      _heartbeatText = d.message || null;
     }
 
     if (d.action === 'completed' || d.action === 'timeout') {
       Object.keys(_toolStats).forEach(function(k) { _toolStats[k].active = false; });
       if (_activityTimer) { clearInterval(_activityTimer); _activityTimer = null; }
+      _heartbeatText = null;
     }
 
     _rebuildDashboard();
@@ -416,6 +450,13 @@ var CardEventHandler = (function () {
         item.className = 'ad-feed-item';
         item.textContent = _activityFeed[j];
         feedEl.appendChild(item);
+      }
+      // 하트비트 — 피드 하단에 in-place. 다음 heartbeat action마다 교체.
+      if (_heartbeatText) {
+        var hbItem = document.createElement('div');
+        hbItem.className = 'ad-feed-item ad-feed-heartbeat';
+        hbItem.textContent = _heartbeatText;
+        feedEl.appendChild(hbItem);
       }
     }
   }
@@ -522,6 +563,7 @@ var CardEventHandler = (function () {
     _stepLabel = '';
     _toolStats = {};
     _activityFeed = [];
+    _heartbeatText = null;
     if (_activityTimer) { clearInterval(_activityTimer); _activityTimer = null; }
     var dash = document.getElementById('activity-dash');
     if (dash) dash.remove();
