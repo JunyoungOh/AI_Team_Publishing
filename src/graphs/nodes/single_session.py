@@ -17,7 +17,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -30,6 +32,12 @@ from src.prompts.single_session_prompts import (
     build_execution_prompt,
 )
 from src.utils.logging import get_logger
+from src.utils.streaming_cards import (
+    CardEmitter,
+    handle_assistant_block,
+    handle_user_block,
+    heartbeat_loop,
+)
 
 _logger = get_logger(agent_id="single_session")
 
@@ -40,23 +48,96 @@ _SESSION_TOOLS = [
     "mcp__firecrawl__firecrawl_scrape",
 ]
 
-# 도구명 → 사용자 친화적 상태 메시지
-_TOOL_STATUS = {
-    "WebSearch": "🔍 웹 검색 중...",
-    "WebFetch": "🌐 웹 페이지 수집 중...",
-    "Agent": "🤖 서브에이전트 실행 중...",
-    "Write": "📝 파일 작성 중...",
-    "Read": "📄 파일 읽는 중...",
-    "Bash": "⚙️ 명령 실행 중...",
-    "Glob": "📂 파일 검색 중...",
-    "Grep": "🔎 코드 검색 중...",
-    "mcp__firecrawl__firecrawl_scrape": "🕷️ 웹 스크래핑 중...",
-}
+_MCP_VAR_PATTERN = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)\}")
+
+
+def _build_runtime_mcp_config() -> tuple[str | None, frozenset[str]]:
+    """프로젝트 .mcp.json을 읽어 env 치환 후 임시 파일에 저장.
+
+    Claude Code CLI의 ``--mcp-config`` 플래그로 넘길 JSON을 런타임에 생성한다.
+    ``~/.claude.json``의 trust/enable 상태와 무관하게 MCP 서버를 기동시켜,
+    ``.env``에 키만 있으면 동작하는 배포 친화적 경로를 확보한다.
+
+    env 값이 비어 있는 서버는 config에서 제거한다 (빈 키로 기동하면
+    firecrawl-mcp 같은 서버가 즉시 종료되어 연쇄 실패를 유발하기 때문).
+
+    Returns:
+        (temp_file_path, enabled_server_names).
+        .mcp.json이 없거나 활성 서버가 없으면 (None, frozenset()).
+    """
+    template = Path(".mcp.json")
+    if not template.exists():
+        return None, frozenset()
+
+    try:
+        raw = template.read_text(encoding="utf-8")
+        substituted = _MCP_VAR_PATTERN.sub(
+            lambda m: os.environ.get(m.group(1), ""),
+            raw,
+        )
+        config = json.loads(substituted)
+    except (OSError, json.JSONDecodeError) as exc:
+        _logger.warning("mcp_config_template_load_failed", error=str(exc))
+        return None, frozenset()
+
+    servers = config.get("mcpServers") or {}
+    pruned: dict[str, dict] = {}
+    for name, cfg in servers.items():
+        env_map = cfg.get("env") or {}
+        if env_map and not all(env_map.values()):
+            _logger.info("mcp_server_skipped_missing_env", server=name)
+            continue
+        pruned[name] = cfg
+
+    if not pruned:
+        return None, frozenset()
+
+    config["mcpServers"] = pruned
+
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w",
+        prefix="single_session_",
+        suffix="_mcp.json",
+        delete=False,
+        encoding="utf-8",
+    )
+    try:
+        json.dump(config, tmp)
+        tmp.flush()
+    finally:
+        tmp.close()
+
+    return tmp.name, frozenset(pruned.keys())
+
+
+def _filter_session_tools(tools: list[str], enabled_mcp: frozenset[str]) -> list[str]:
+    """활성 MCP 서버에 속한 도구만 남긴다.
+
+    ``mcp__<server>__<tool>`` 형식은 <server>가 enabled_mcp에 포함될 때만 유지.
+    non-MCP 도구(WebSearch, Read 등)는 전부 유지한다.
+    """
+    filtered: list[str] = []
+    for tool in tools:
+        if not tool.startswith("mcp__"):
+            filtered.append(tool)
+            continue
+        parts = tool.split("__", 2)
+        if len(parts) < 3:
+            continue
+        server_name = parts[1]
+        if server_name in enabled_mcp:
+            filtered.append(tool)
+        else:
+            _logger.info(
+                "session_tool_dropped_mcp_disabled",
+                tool=tool,
+                server=server_name,
+            )
+    return filtered
 
 
 def _build_report_dir(user_task: str, session_id: str) -> str:
     """task 제목을 기반으로 보고서 폴더 경로를 생성."""
-    import re
     # 제목에서 폴더명 생성 (최대 50자, 파일시스템 안전 문자만)
     name = user_task.strip()[:50]
     # 파일시스템에 안전하지 않은 문자 제거
@@ -111,6 +192,12 @@ async def _stream_session(
 
     set_session_tag(f"single_{session_id}")
 
+    # 런타임 MCP 설정 주입: .mcp.json을 env 치환 후 임시 파일로 써서 --mcp-config로 전달.
+    # ~/.claude.json의 trust/enable 상태와 무관하게 MCP 서버가 기동되도록 하여
+    # 배포 환경에서도 .env에 키만 넣으면 동작하는 패턴을 복원한다.
+    mcp_config_path, enabled_mcp = _build_runtime_mcp_config()
+    session_tools = _filter_session_tools(_SESSION_TOOLS, enabled_mcp)
+
     # asyncio.create_subprocess_exec: 인자가 배열로 전달되어 shell injection 방지
     cmd = [
         "claude", "-p", prompt,
@@ -119,9 +206,11 @@ async def _stream_session(
         "--model", model,
         "--max-turns", str(max_turns),
         "--append-system-prompt", system_prompt,
-        "--allowedTools", ",".join(_SESSION_TOOLS),
+        "--allowedTools", ",".join(session_tools),
         "--permission-mode", "auto",
     ]
+    if mcp_config_path:
+        cmd.extend(["--mcp-config", mcp_config_path, "--strict-mcp-config"])
 
     env = os.environ.copy()
     env.pop("CLAUDECODE", None)
@@ -139,8 +228,12 @@ async def _stream_session(
     )
     _register_process(proc)
 
-    full_text = ""
-    tool_count = 0
+    # 스트리밍 카드 헬퍼 상태 — 한 세션에 emitter 하나, 끝까지 재사용
+    emitter = CardEmitter.from_session_id(session_id)
+    text_accumulator: list[str] = []
+    tool_count_ref: list[int] = [0]
+    tool_use_map: dict[str, str] = {}
+
     timed_out = False
     start_time = time.time()
 
@@ -153,6 +246,10 @@ async def _stream_session(
             "elapsed": 0,
         },
     })
+
+    # 침묵 감지 하트비트 — 15초 이상 이벤트가 없으면 주기적으로 "작업 중" 카드 갱신.
+    # Write같이 큰 content를 inline으로 담는 도구 호출 대기 구간을 메움.
+    heartbeat_task = asyncio.create_task(heartbeat_loop(emitter, start_time=start_time))
 
     try:
         async with asyncio.timeout(timeout):
@@ -173,41 +270,35 @@ async def _stream_session(
                     for block in message.get("content", []):
                         if not isinstance(block, dict):
                             continue
+                        await handle_assistant_block(
+                            block,
+                            emitter=emitter,
+                            elapsed=elapsed,
+                            text_accumulator=text_accumulator,
+                            tool_count_ref=tool_count_ref,
+                            tool_use_map=tool_use_map,
+                        )
 
-                        if block.get("type") == "text":
-                            full_text += block["text"]
-
-                        elif block.get("type") == "tool_use":
-                            tool_name = block.get("name", "")
-                            tool_count += 1
-                            status = _TOOL_STATUS.get(tool_name, f"🔧 {tool_name}")
-
-                            # Agent 도구는 description을 표시
-                            detail = ""
-                            if tool_name == "Agent":
-                                inp = block.get("input", {})
-                                detail = inp.get("description", inp.get("prompt", ""))[:80]
-
-                            emit_mode_event(session_id, {
-                                "type": "activity",
-                                "data": {
-                                    "action": "tool_use",
-                                    "tool": tool_name,
-                                    "message": status,
-                                    "detail": detail,
-                                    "elapsed": elapsed,
-                                    "tool_count": tool_count,
-                                },
-                            })
+                elif event_type == "user":
+                    message = event.get("message", {})
+                    for block in message.get("content", []):
+                        if not isinstance(block, dict):
+                            continue
+                        await handle_user_block(
+                            block,
+                            emitter=emitter,
+                            elapsed=elapsed,
+                            tool_use_map=tool_use_map,
+                        )
 
                 elif event_type == "result":
                     result_text = event.get("result", "")
                     if event.get("is_error"):
                         _logger.warning("single_session_result_error", error=result_text[:200])
-                        if not full_text:
-                            full_text = result_text
-                    elif not full_text and result_text:
-                        full_text = result_text
+                        if not text_accumulator:
+                            text_accumulator.append(result_text)
+                    elif not text_accumulator and result_text:
+                        text_accumulator.append(result_text)
 
     except TimeoutError:
         timed_out = True
@@ -223,8 +314,21 @@ async def _stream_session(
         })
         await _kill_process_tree(proc)
     finally:
+        # 하트비트 task 정리 — stream loop이 끝나면 더는 필요 없음
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except (asyncio.CancelledError, Exception):
+            pass
         _unregister_process(proc)
+        if mcp_config_path:
+            try:
+                os.unlink(mcp_config_path)
+            except OSError:
+                pass
 
+    full_text = "".join(text_accumulator)
+    tool_count = tool_count_ref[0]
     elapsed = round(time.time() - start_time, 1)
     completed_msg = (
         f"⚠️ 작업이 시간 제한 ({timeout}초)으로 중단되었습니다 — 부분 결과만 저장됨"
