@@ -6,8 +6,8 @@ Flow:
           single_session → user_review_results → END
                          ↘ error_terminal → END
 
-전략(나만의 방식) 경로: 전략이 이미 관점과 범위를 정의하므로 clarify 단계
-없이 바로 실행. 인스턴트 모드: 모호한 태스크를 명확화 질문으로 구체화한 뒤
+플레이북 경로: 저장된 플레이북이 이미 관점과 범위를 정의하므로 clarify 단계
+없이 바로 실행. ad-hoc 경로: 모호한 태스크를 명확화 질문으로 구체화한 뒤
 single_session에 전달. single_session_node가 태스크·전략·답변을 모두
 받아 단일 CLI 세션으로 분석·보고서 작성까지 수행.
 """
@@ -83,9 +83,9 @@ def _route_or_error(next_node: str):
 def _route_after_intake(state: dict) -> str:
     """전략이 있으면 clarify 단계를 건너뛰고 바로 실행, 없으면 명확화 질문 생성.
 
-    - 나만의 방식 모드: 저장된 전략이 이미 관점/범위/특별지시를 담고 있으므로
+    - 플레이북 경로: 저장된 플레이북이 이미 관점/범위/특별지시를 담고 있으므로
       generic clarify를 물어봐야 할 이유가 없다. 바로 single_session으로.
-    - 인스턴트 모드: 사용자 지시가 모호할 수 있으므로 CEO가 명확화 질문을
+    - ad-hoc 경로: 사용자 지시가 모호할 수 있으므로 CEO가 명확화 질문을
       생성하고 답변을 받은 뒤 single_session으로.
     """
     if state.get("phase") == "error":

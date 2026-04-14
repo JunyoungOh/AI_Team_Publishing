@@ -337,21 +337,21 @@ def _extract_team_json(text: str) -> dict[str, Any] | None:
     return data
 
 
-# ── Strategy Builder (분석 전략 프리셋 설계) ──
+# ── Strategy Builder (플레이북 설계) ──
 
-# 타입별 전략 유형: general | schedule
-VALID_STRATEGY_TYPES = {"general", "schedule"}
+# 단일 타입만 유지: 모든 플레이북은 인스턴트 실행과 자동실행 둘 다에서 사용 가능.
+VALID_STRATEGY_TYPES = {"general"}
 
-_STRATEGY_BASE_PROMPT = """\
-당신은 **분석 방식 설계 전문가**입니다.
-사용자의 비즈니스 목표를 분석하여, AI가 작업할 때 사용할 **분석 프레임워크(일하는 방식)**를 설계합니다.
+_STRATEGY_PROMPT = """\
+당신은 **플레이북 설계 전문가**입니다.
+사용자의 비즈니스 목표를 분석하여, AI가 작업할 때 사용할 **재사용 가능한 플레이북(일하는 방식)**을 설계합니다.
 
 **중요 — 도구 사용 금지**: 이 대화에서는 어떤 도구(Read/Write/Bash/Skill/WebSearch 등)도 호출하지 마세요. 오직 텍스트(필요 시 strategy_json 블록 포함)로만 응답하세요. 도구 호출을 시도하면 차단되어 응답이 실패합니다.
 
 ## 설계 철학
 
 ### 관점(Perspective) 기반 분석
-좋은 분석은 하나의 주제를 **여러 관점**에서 바라봅니다.
+좋은 플레이북은 하나의 주제를 **여러 관점**에서 바라봅니다.
 - 각 관점은 독립적인 분석 축 (예: 시장, 고객, 재무, 기술)
 - AI가 각 관점별로 서브에이전트를 병렬 실행하여 정보를 수집합니다
 - 관점이 3~5개일 때 가장 효율적. 7개 초과 시 분석이 산만해집니다.
@@ -363,24 +363,24 @@ _STRATEGY_BASE_PROMPT = """\
 
 ## 출력 형식
 
-방식을 제안할 때 반드시 아래 JSON 블록을 응답에 포함하세요:
+플레이북을 제안할 때 반드시 아래 JSON 블록을 응답에 포함하세요:
 
 ```strategy_json
-{{
-  "name": "전략 이름",
-  "description": "이 전략이 무엇을 분석하는지 1-2문장",
-  "type": "{strategy_type}",
+{
+  "name": "플레이북 이름",
+  "description": "이 플레이북이 무엇을 수행하는지 1-2문장",
+  "type": "general",
   "perspectives": [
-    {{
+    {
       "name": "관점 이름 (간결하게)",
       "icon": "이모지 1개",
       "instruction": "AI에게 전달할 구체적 분석 지시 (무엇을 조사하고, 어떤 데이터를 수집하고, 어떤 형태로 정리할지)"
-    }}
+    }
   ],
   "depth": "light | standard | deep",
   "output_format": "summary | executive_report | data_table | presentation",
   "special_instructions": "추가 지시사항 (선택)"
-}}
+}
 ```
 
 ### depth 설명
@@ -397,90 +397,51 @@ _STRATEGY_BASE_PROMPT = """\
 ## 대화 진행 방식
 
 ### 1단계: 명확화 질문 (필수)
-사용자의 첫 입력을 받으면, **전략을 바로 설계하지 말고** 먼저 2~3개의 명확화 질문을 하세요.
-질문의 목적: 어떤 분석 방식을 원하는지 정확히 파악하기 위함.
+사용자의 첫 입력을 받으면, **플레이북을 바로 설계하지 말고** 먼저 2~3개의 명확화 질문을 하세요.
+질문의 목적: 어떤 플레이북을 원하는지 정확히 파악하기 위함.
 
-{clarify_section}
+질문 예시:
+- "이 플레이북의 주요 용도는 무엇인가요? (리서치/기획/아이디어 발산/파일 분석 등)"
+- "특별히 중점을 두고 싶은 관점이 있나요?"
+- "분석 깊이는 어느 정도를 원하시나요? (빠른 개요 vs 심층 분석)"
+- "결과물 형식 선호가 있나요? (요약 보고서, 데이터 표, 발표 자료)"
+- 정기 반복 실행이 필요해 보이면: "이전 실행 결과와 비교하여 변화를 추적하는 것이 중요한가요?"
 
 **중요**: 1단계에서는 strategy_json을 출력하지 마세요. 질문만 하세요.
 
-### 2단계: 방식 설계
+### 2단계: 플레이북 설계
 사용자의 답변을 반영하여 관점별 분석 프레임워크를 설계합니다.
 - 각 관점이 **왜 필요한지** 간단히 설명
 - strategy_json 블록 포함
-
-{design_section}
+- 정기 반복 실행 의도가 보이면 instruction에 "이전 결과 대비 변화"를 추적하는 지시를 자연스럽게 포함
 
 ### 3단계: 수정
 사용자 요청에 따라 관점 추가/삭제/수정 후 전체 strategy_json을 다시 출력합니다.
 
-"방식이 저장되었습니다. 작업을 지시하시면 이 방식으로 분석을 시작합니다."로 안내합니다.
+"플레이북이 저장되었습니다. 작업을 지시하시면 이 플레이북으로 작업을 시작합니다."로 안내합니다.
+
+## 절대 묻지 말 것 (역할 경계)
+당신의 역할은 **플레이북(관점) 설계**에 한정됩니다. 다음 사항은 **절대 묻거나 언급하지 마세요**:
+- 실행 시간/주기/요일 (예: "몇 시에", "매일/매주/매월")
+- 자동실행 등록/활성화
+
+자동 반복 실행이 필요한 경우, 시간/주기는 사용자가 **'자동실행' 탭**에서 이 플레이북을 선택한 뒤 직접 설정합니다.
+플레이북 카드(strategy_json)를 출력한 뒤에는 "이 플레이북을 저장한 다음, 자동실행 탭에서 실행 시간을 설정할 수 있습니다." 정도로만 자동 반복 옵션을 안내하세요.
 """
-
-_CLARIFY_GENERAL = """\
-질문 예시:
-- "이 분석의 주요 목적은 무엇인가요? (투자 판단, 내부 보고, 경쟁 분석 등)"
-- "특별히 중점을 두고 싶은 관점이 있나요?"
-- "분석 깊이는 어느 정도를 원하시나요? (빠른 개요 vs 심층 분석)"
-- "결과물 형식 선호가 있나요? (요약 보고서, 데이터 표, 발표 자료)"\
-"""
-
-_CLARIFY_SCHEDULE = """\
-이 방식은 **정기적으로 반복 실행**되는 스케줄 작업용입니다.
-매일/매주 자동으로 돌아가며 변화를 감지하고 보고하는 분석 방식을 설계합니다.
-
-질문 예시:
-- "정기적으로 모니터링하고 싶은 대상은 무엇인가요? (경쟁사, 시장 동향, 뉴스, 가격 등)"
-- "변화 감지 시 특별히 알림받고 싶은 기준이 있나요? (예: 가격 10% 이상 변동)"
-- "이전 실행 결과와 비교하여 변화를 추적하는 것이 중요한가요?"
-- "결과물은 어떤 형식으로 받고 싶나요? (간략 요약 vs 상세 보고서)"\
-"""
-
-_DESIGN_GENERAL = """\
-각 관점은 범용 분석 축으로 설계하세요.\
-"""
-
-_DESIGN_SCHEDULE = """\
-각 관점은 **정기 모니터링에 적합하게** 설계하세요:
-- 관점별 instruction에 "이전 결과 대비 변화"를 추적하는 지시를 포함
-- 반복 실행해도 의미 있는 데이터 수집이 되도록 시간적 범위를 명시 (예: "최근 1주일")
-- 변화 감지 기준이나 알림 조건을 instruction에 포함하면 좋습니다
-
-**중요 - 역할 경계**:
-당신의 역할은 **방식(관점) 설계**에 한정됩니다. 다음 사항은 **절대 묻거나 언급하지 마세요**:
-- 실행 시간(예: "몇 시에", "오전/오후", "매일 몇 시")
-- 실행 주기(예: "매일/매주/매월")
-- 요일 선택
-- 스케줄 등록/활성화
-
-실행 시간과 주기는 사용자가 **별도의 '스케줄팀' 탭**에서 이 방식을 선택한 뒤 직접 설정합니다.
-방식 카드(strategy_json)를 출력한 뒤에는 "이 방식을 저장한 다음, 스케줄팀 탭에서 실행 시간을 설정하시면 됩니다." 정도로만 안내하세요.\
-"""
-
-_CLARIFY_MAP = {
-    "general": _CLARIFY_GENERAL,
-    "schedule": _CLARIFY_SCHEDULE,
-}
-
-_DESIGN_MAP = {
-    "general": _DESIGN_GENERAL,
-    "schedule": _DESIGN_SCHEDULE,
-}
 
 
 def build_strategy_prompt(strategy_type: str = "general") -> str:
-    """타입에 맞는 전략 설계 프롬프트를 조합하여 반환."""
-    if strategy_type not in VALID_STRATEGY_TYPES:
-        strategy_type = "general"
-    return _STRATEGY_BASE_PROMPT.format(
-        strategy_type=strategy_type,
-        clarify_section=_CLARIFY_MAP[strategy_type],
-        design_section=_DESIGN_MAP[strategy_type],
-    )
+    """플레이북 설계 시스템 프롬프트를 반환.
+
+    `strategy_type` 인자는 하위 호환을 위해 유지하지만 더 이상 사용되지 않는다
+    (모든 플레이북이 동일한 설계 프롬프트를 사용한다).
+    """
+    del strategy_type
+    return _STRATEGY_PROMPT
 
 
 # 하위 호환: 기존 코드에서 STRATEGY_BUILDER_PROMPT를 직접 참조하는 곳 대비
-STRATEGY_BUILDER_PROMPT = build_strategy_prompt("general")
+STRATEGY_BUILDER_PROMPT = _STRATEGY_PROMPT
 
 
 class StrategyBuilderSession:
@@ -491,24 +452,12 @@ class StrategyBuilderSession:
     매 턴마다 전체 히스토리를 재전송하지 않습니다.
     """
 
-    def __init__(self, user_id: str = "", strategy_type: str = "general"):
+    def __init__(self, user_id: str = ""):
         self.user_id = user_id
-        self.strategy_type = (
-            strategy_type if strategy_type in VALID_STRATEGY_TYPES else "general"
-        )
         self.history: list[dict[str, str]] = []
         self._bridge = get_bridge()
         # CLI 세션 ID (첫 호출 시 생성, 이후 턴에서 --resume으로 재사용)
         self._cli_session_id: str | None = None
-
-    def set_strategy_type(self, strategy_type: str) -> None:
-        """전략 타입을 변경하고 대화 히스토리를 초기화."""
-        self.strategy_type = (
-            strategy_type if strategy_type in VALID_STRATEGY_TYPES else "general"
-        )
-        self.history.clear()
-        # 타입 변경 시 세션도 초기화 (새 시스템 프롬프트 적용 위해)
-        self._cli_session_id = None
 
     async def stream_response(self, user_message: str, ws, workspace_files: list[str] | None = None) -> None:
         """전략 설계 응답 생성 및 WebSocket 전송.
@@ -525,7 +474,7 @@ class StrategyBuilderSession:
                 effective_message = user_message + "\n\n" + file_ctx
 
         self.history.append({"role": "user", "content": effective_message})
-        system_prompt = build_strategy_prompt(self.strategy_type)
+        system_prompt = build_strategy_prompt()
 
         # 첫 호출: 새 세션 시작 / 이후 호출: 기존 세션 resume
         is_first_turn = self._cli_session_id is None
@@ -608,8 +557,9 @@ def _extract_strategy_json(text: str) -> dict[str, Any] | None:
     if not data.get("name"):
         data["name"] = "분석 전략"
 
-    # type 검증 — 없으면 general
-    if data.get("type") not in VALID_STRATEGY_TYPES:
+    # 새로 생성되는 플레이북은 항상 general. 기존 저장본의 type(schedule 등)은
+    # 그대로 두고 UI가 필터 없이 모두 표시한다.
+    if not data.get("type"):
         data["type"] = "general"
 
     # perspectives 검증

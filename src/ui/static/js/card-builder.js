@@ -23,9 +23,7 @@ var CardBuilder = (function () {
   var _currentStrategy = null; // loaded strategy data
   var _useStrategyMode = true; // 싱글 세션 모드에서는 항상 전략 설계
   var _pendingEditMode = false; // 수정 요청 대기 플래그
-  var _initialStrategyBtnAdded = false; // 초기 저장된 방식 버튼 추가 여부
-  var _strategyType = 'general'; // 현재 선택된 전략 타입: general | schedule
-  var _typeSelected = false; // 타입 선택 완료 여부
+  var _initialStrategyBtnAdded = false; // 초기 저장된 플레이북 버튼 추가 여부
 
   /* ── WebSocket ── */
 
@@ -125,11 +123,11 @@ var CardBuilder = (function () {
       _renderSidebarStrategyList();
     } else if (type === 'strategy_saved') {
       _currentStrategyId = data.id || null;
-      if (_chatPanel) _chatPanel.addMessage('💾 방식이 저장되었습니다: ' + (data.name || data.id), 'system');
+      if (_chatPanel) _chatPanel.addMessage('💾 플레이북이 저장되었습니다: ' + (data.name || data.id), 'system');
     } else if (type === 'strategy_loaded') {
       _displayStrategyCards(data);
     } else if (type === 'strategy_deleted') {
-      if (_chatPanel) _chatPanel.addMessage('🗑️ 방식이 삭제되었습니다.', 'system');
+      if (_chatPanel) _chatPanel.addMessage('🗑️ 플레이북이 삭제되었습니다.', 'system');
     } else if (type === 'error') {
       if (_chatPanel) _chatPanel.addMessage('❌ ' + (data.message || '오류'), 'system');
     }
@@ -205,18 +203,18 @@ var CardBuilder = (function () {
     _displayStrategyCards(data);
     // 스트리밍 텍스트는 사용자 안내를 포함하므로 유지 (숨기지 않음)
     if (_chatPanel) {
-      // 방식 저장 안내 + 버튼 (카드 바로 아래)
-      _chatPanel.addMessage('이 방식을 저장하면 다음에 바로 불러와 사용할 수 있습니다.', 'system');
+      // 플레이북 저장 안내 + 버튼 (카드 바로 아래)
+      _chatPanel.addMessage('이 플레이북을 저장하면 다음에 바로 불러와 사용할 수 있습니다.', 'system');
       _chatPanel.addActionButtons([
         {
-          label: '이 방식 저장하기',
+          label: '이 플레이북 저장하기',
           icon: '💾',
           action: function () {
             _send({ type: 'save_strategy', data: data });
           },
         },
         {
-          label: '방식 수정 요청',
+          label: '플레이북 수정 요청',
           icon: '✏️',
           action: function () {
             _chatPanel.setInputPlaceholder('수정 요청을 입력하세요...');
@@ -233,7 +231,7 @@ var CardBuilder = (function () {
         { id: 'csv', label: 'CSV', icon: '📊' },
         { id: 'json', label: 'JSON', icon: '{}' },
       ]);
-      _chatPanel.setInputPlaceholder('이 방식으로 업무를 지시하세요...');
+      _chatPanel.setInputPlaceholder('이 플레이북으로 업무를 지시하세요...');
     }
   }
 
@@ -351,7 +349,7 @@ var CardBuilder = (function () {
     }
 
     if (_strategies.length === 0) {
-      _chatPanel.addMessage('저장된 방식이 없습니다. 새로 만들어보세요.', 'system');
+      _chatPanel.addMessage('저장된 플레이북이 없습니다. 새로 만들어보세요.', 'system');
       return;
     }
 
@@ -362,13 +360,13 @@ var CardBuilder = (function () {
       (function (s) {
         var item = document.createElement('div');
         item.className = 'cc-strategy-item';
-        item.textContent = '📊 ' + (s.name || '방식');
+        item.textContent = '📊 ' + (s.name || '플레이북');
         item.addEventListener('click', function () {
           _send({ type: 'load_strategy', data: { strategy_id: s.id } });
           _displayStrategyCards(s);
           if (_chatPanel) {
-            _chatPanel.addMessage('✅ "' + (s.name || '방식') + '" 방식이 로드되었습니다. 업무를 지시하세요.', 'system');
-            _chatPanel.setInputPlaceholder('이 방식으로 업무를 지시하세요...');
+            _chatPanel.addMessage('✅ "' + (s.name || '플레이북') + '" 플레이북이 로드되었습니다. 업무를 지시하세요.', 'system');
+            _chatPanel.setInputPlaceholder('이 플레이북으로 업무를 지시하세요...');
             // 출력 형식 선택 표시
             _chatPanel.showFormatSelector([
               { id: 'html', label: 'HTML', icon: '📄', default: true },
@@ -455,135 +453,6 @@ var CardBuilder = (function () {
     });
   }
 
-  /* ── Strategy Type Selector ── */
-
-  var _TYPE_INFO = {
-    general: { icon: '🔍', label: 'General', desc: '범용 분석 방식' },
-    schedule: { icon: '📅', label: '스케줄', desc: '정기 반복 모니터링용' },
-  };
-
-  function showTypeSelector() {
-    if (!_chatPanel) return;
-    _typeSelected = false;
-
-    var container = document.createElement('div');
-    container.className = 'cb-type-selector';
-    container.id = 'cb-type-selector';
-
-    var title = document.createElement('div');
-    title.className = 'cb-type-title';
-    title.textContent = '어떤 용도의 방식을 만드시겠어요?';
-    container.appendChild(title);
-
-    var grid = document.createElement('div');
-    grid.className = 'cb-type-grid';
-
-    var types = ['general', 'schedule'];
-    for (var i = 0; i < types.length; i++) {
-      (function (t) {
-        var info = _TYPE_INFO[t];
-        var btn = document.createElement('button');
-        btn.className = 'cb-type-btn';
-        btn.dataset.type = t;
-
-        var icon = document.createElement('div');
-        icon.className = 'cb-type-icon';
-        icon.textContent = info.icon;
-        btn.appendChild(icon);
-
-        var label = document.createElement('div');
-        label.className = 'cb-type-label';
-        label.textContent = info.label;
-        btn.appendChild(label);
-
-        var desc = document.createElement('div');
-        desc.className = 'cb-type-desc';
-        desc.textContent = info.desc;
-        btn.appendChild(desc);
-
-        btn.addEventListener('click', function () {
-          _selectType(t);
-        });
-        grid.appendChild(btn);
-      })(types[i]);
-    }
-
-    container.appendChild(grid);
-    _chatPanel.messagesEl.appendChild(container);
-    _chatPanel.messagesEl.scrollTop = _chatPanel.messagesEl.scrollHeight;
-  }
-
-  function _selectType(type) {
-    _strategyType = type;
-    _typeSelected = true;
-
-    // 서버에 타입 설정 전송
-    _send({ type: 'set_strategy_type', data: { strategy_type: type } });
-
-    // 선택 UI 업데이트 — 선택된 버튼 강조, 나머지 비활성
-    var selector = document.getElementById('cb-type-selector');
-    if (selector) {
-      var btns = selector.querySelectorAll('.cb-type-btn');
-      for (var i = 0; i < btns.length; i++) {
-        if (btns[i].dataset.type === type) {
-          btns[i].classList.add('cb-type-selected');
-        } else {
-          btns[i].classList.add('cb-type-dimmed');
-          btns[i].disabled = true;
-        }
-      }
-    }
-
-    // 안내 메시지 (마크다운 포함 — markdown: true 명시)
-    var info = _TYPE_INFO[type];
-    if (_chatPanel) {
-      _chatPanel.addMessage(
-        info.icon + ' **' + info.label + '** 방식을 설계합니다. 어떤 분석이 필요한지 알려주세요.',
-        'system',
-        { markdown: true }
-      );
-      _chatPanel.setInputPlaceholder(
-        type === 'schedule' ? '정기 모니터링할 내용을 알려주세요...' :
-        '분석 방식을 설계해보세요...'
-      );
-    }
-  }
-
-  /**
-   * 외부에서 특정 타입으로 빌더를 시작할 때 사용.
-   * 스케줄팀에서 "새로 만들기" 시 호출.
-   */
-  function startWithType(type) {
-    // builder 모드로 전환 (create 서브탭 강제)
-    if (typeof CardView !== 'undefined') {
-      CardView.switchMode('builder');
-    }
-
-    // 메시지 영역 초기화 + 타입 선택 상태 리셋
-    _typeSelected = false;
-    _strategyType = 'general';
-    if (_chatPanel && _chatPanel.messagesEl) {
-      while (_chatPanel.messagesEl.firstChild) {
-        _chatPanel.messagesEl.removeChild(_chatPanel.messagesEl.firstChild);
-      }
-    }
-
-    // WS 연결 보장
-    if (_chatPanel) _connect(_chatPanel);
-
-    // 타입 바로 선택 (selector 없이 즉시 설정)
-    var retries = 0;
-    var trySet = function () {
-      if (_ws && _wsReady) {
-        _selectType(type);
-      } else if (retries < 30) {
-        retries++;
-        setTimeout(trySet, 200);
-      }
-    };
-    trySet();
-  }
-
   /* ── Helpers ── */
 
   function _summarizeStrategyForEdit(s) {
@@ -611,23 +480,18 @@ var CardBuilder = (function () {
   /* ── Public API ── */
 
   function sendMessage(text, wsFiles) {
-    // 타입 미선택 시 안내
-    if (_useStrategyMode && !_typeSelected && !_currentStrategy) {
-      if (_chatPanel) _chatPanel.addMessage('먼저 방식 유형을 선택해주세요.', 'system');
-      return;
-    }
     // 수정 요청 모드: 현재 전략 전체 컨텍스트를 포함하여 재설계 요청 전달
     // (세션이 유실되었거나 CLI resume이 실패해도 모델이 전체 맥락을 복원할 수 있도록)
     if (_pendingEditMode && _currentStrategy) {
       _pendingEditMode = false;
       var strategyCtx = _summarizeStrategyForEdit(_currentStrategy);
       var editPrompt =
-        '[방식 수정 요청 — 명확화 질문 없이 바로 재설계]\n\n' +
-        '## 현재 방식\n' + strategyCtx + '\n\n' +
+        '[플레이북 수정 요청 — 명확화 질문 없이 바로 재설계]\n\n' +
+        '## 현재 플레이북\n' + strategyCtx + '\n\n' +
         '## 사용자 수정 요청\n' + text + '\n\n' +
-        '위 수정 요청을 반영하여 **전체 방식을 재설계**해주세요. ' +
+        '위 수정 요청을 반영하여 **전체 플레이북을 재설계**해주세요. ' +
         '반드시 ```strategy_json 블록을 포함하여 응답하세요. ' +
-        '명확화 질문은 생략하고 바로 수정된 방식을 출력하세요.';
+        '명확화 질문은 생략하고 바로 수정된 플레이북을 출력하세요.';
       _send({ type: 'strategy_message', data: { content: editPrompt } });
       return;
     }
@@ -797,18 +661,10 @@ var CardBuilder = (function () {
     getCurrentStrategyId: function () { return _currentStrategyId; },
     getCurrentStrategy: function () { return _currentStrategy; },
     getStrategies: function () { return _strategies; },
-    getStrategiesByType: function (type) {
-      return _strategies.filter(function (s) { return (s.type || 'general') === type; });
-    },
     loadAndDisplayStrategy: function (s) { _displayStrategyCards(s); },
     deleteStrategy: function (id) { _send({ type: 'delete_strategy', data: { strategy_id: id } }); },
     setPendingEditMode: function (v) { _pendingEditMode = !!v; },
     isPendingEditMode: function () { return _pendingEditMode; },
     validateTask: validateTask,
-    showTypeSelector: showTypeSelector,
-    startWithType: startWithType,
-    getStrategyType: function () { return _strategyType; },
-    isTypeSelected: function () { return _typeSelected; },
-    resetTypeSelection: function () { _typeSelected = false; _strategyType = 'general'; },
   };
 })();

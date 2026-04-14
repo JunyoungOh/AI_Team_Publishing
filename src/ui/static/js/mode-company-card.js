@@ -26,7 +26,7 @@ var CardView = (function () {
 
   /* ── Welcome messages per mode ── */
   var WELCOME = {
-    'builder-create': '',  // 타입 선택 UI가 대신 표시됨
+    'builder-create': '플레이북을 설계해보세요. 어떤 작업을 어떤 관점·데이터·형식으로 처리하고 싶은지 알려주시면 AI가 함께 다듬어 저장합니다.',
     'builder-saved': '',
   };
 
@@ -36,7 +36,7 @@ var CardView = (function () {
 
   /* ── Mode titles for header ── */
   var _modeTitles = {
-    builder: 'AI Company',
+    builder: '플레이북',
     discussion: 'AI 토론',
     foresight: 'Foresight',
     persona: '페르소나 워크숍',
@@ -106,9 +106,9 @@ var CardView = (function () {
       _chatPanel.switchMode(chatMode);
       _chatPanel.toggle(true);
       if (chatMode === 'builder-create') {
-        _chatPanel.setInputPlaceholder('분석 방식을 설계해보세요...');
+        _chatPanel.setInputPlaceholder('플레이북을 설계해보세요...');
       } else if (chatMode === 'builder-saved') {
-        _chatPanel.setInputPlaceholder('이 방식으로 업무를 지시하세요...');
+        _chatPanel.setInputPlaceholder('이 플레이북으로 업무를 지시하세요...');
       } else {
         _chatPanel.setInputPlaceholder('업무를 지시하세요...');
       }
@@ -163,13 +163,7 @@ var CardView = (function () {
       var welcomeMsg = WELCOME[chatMode] || WELCOME[mode] || '';
       if (welcomeMsg) _chatPanel.addMessage(welcomeMsg, 'system', { welcome: true });
 
-      // builder-create 탭: 타입 선택 UI 표시
-      if (chatMode === 'builder-create') {
-        CardBuilder.resetTypeSelection();
-        CardBuilder.showTypeSelector();
-      }
-
-      // builder-saved 탭: 저장된 방식 목록 즉시 표시
+      // builder-saved 탭: 저장된 플레이북 목록 즉시 표시
       if (chatMode === 'builder-saved') {
         _renderSavedStrategyList();
       }
@@ -197,8 +191,8 @@ var CardView = (function () {
     var bar = document.createElement('div');
     bar.className = 'builder-tab-bar';
     var tabs = [
-      { id: 'create', label: '새 방식 만들기', icon: '🏗️' },
-      { id: 'saved', label: '저장된 방식', icon: '📂' },
+      { id: 'create', label: '새 플레이북 만들기', icon: '🏗️' },
+      { id: 'saved', label: '저장된 플레이북', icon: '📂' },
     ];
     tabs.forEach(function (t) {
       var btn = document.createElement('button');
@@ -238,9 +232,9 @@ var CardView = (function () {
     if (_chatPanel) {
       _chatPanel.switchMode(chatMode);
       if (tab === 'create') {
-        _chatPanel.setInputPlaceholder('분석 방식을 설계해보세요...');
+        _chatPanel.setInputPlaceholder('플레이북을 설계해보세요...');
       } else {
-        _chatPanel.setInputPlaceholder('이 방식으로 업무를 지시하세요...');
+        _chatPanel.setInputPlaceholder('이 플레이북으로 업무를 지시하세요...');
       }
       if (tab === 'saved') {
         // 탭 전환할 때마다 목록을 새로 렌더링 (새로 저장된 방식 반영)
@@ -256,13 +250,9 @@ var CardView = (function () {
 
   function _renderSavedStrategyList() {
     if (!_chatPanel) return;
-    var allStrategies = CardBuilder.getStrategies ? CardBuilder.getStrategies() : [];
-    // 나만의 방식 탭에서는 general 타입만 표시
-    var strategies = allStrategies.filter(function (s) {
-      return !s.type || s.type === 'general';
-    });
+    var strategies = CardBuilder.getStrategies ? CardBuilder.getStrategies() : [];
     if (strategies.length === 0) {
-      _chatPanel.addMessage('저장된 General 방식이 없습니다. "새 방식 만들기" 탭에서 방식을 설계하고 저장하세요.', 'system');
+      _chatPanel.addMessage('저장된 플레이북이 없습니다. "새 플레이북 만들기" 탭에서 설계하고 저장하세요.', 'system');
       return;
     }
 
@@ -280,7 +270,7 @@ var CardView = (function () {
 
       var name = document.createElement('div');
       name.className = 'ssc-name';
-      name.textContent = s.name || '방식';
+      name.textContent = s.name || '플레이북';
       var desc = document.createElement('div');
       desc.className = 'ssc-desc';
       desc.textContent = s.description || '';
@@ -325,7 +315,7 @@ var CardView = (function () {
   function _loadSavedStrategy(s) {
     CardBuilder.loadAndDisplayStrategy(s);
     if (_chatPanel) {
-      _chatPanel.addMessage('✅ "' + (s.name || '방식') + '" 방식이 로드되었습니다.', 'system');
+      _chatPanel.addMessage('✅ "' + (s.name || '플레이북') + '" 플레이북이 로드되었습니다.', 'system');
       _chatPanel.showFormatSelector([
         { id: 'html', label: 'HTML', icon: '📄', default: true },
         { id: 'pdf', label: 'PDF', icon: '📑' },
@@ -333,12 +323,12 @@ var CardView = (function () {
         { id: 'csv', label: 'CSV', icon: '📊' },
         { id: 'json', label: 'JSON', icon: '{}' },
       ]);
-      _chatPanel.setInputPlaceholder('이 방식으로 업무를 지시하세요...');
+      _chatPanel.setInputPlaceholder('이 플레이북으로 업무를 지시하세요...');
     }
   }
 
   function _deleteSavedStrategy(s, cardEl) {
-    if (!confirm('"' + (s.name || '방식') + '" 을 삭제하시겠습니까?')) return;
+    if (!confirm('"' + (s.name || '플레이북') + '" 을 삭제하시겠습니까?')) return;
     CardBuilder.deleteStrategy(s.id);
     if (cardEl && cardEl.parentNode) {
       cardEl.style.opacity = '0.3';
@@ -348,11 +338,11 @@ var CardView = (function () {
   }
 
   function _editSavedStrategy(s) {
-    // 새 방식 만들기 탭으로 전환하고, 수정 요청 모드로 진입
+    // 새 플레이북 만들기 탭으로 전환하고, 수정 요청 모드로 진입
     _switchBuilderSubTab('create');
     CardBuilder.loadAndDisplayStrategy(s);
     if (_chatPanel) {
-      _chatPanel.addMessage('✏️ "' + (s.name || '방식') + '" 방식을 수정합니다. 수정할 내용을 입력하세요.', 'system');
+      _chatPanel.addMessage('✏️ "' + (s.name || '플레이북') + '" 플레이북을 수정합니다. 수정할 내용을 입력하세요.', 'system');
       _chatPanel.setInputPlaceholder('수정 요청을 입력하세요... (예: "관점 하나 추가해줘")');
       CardBuilder.setPendingEditMode(true);
     }
@@ -428,12 +418,12 @@ var CardView = (function () {
     if (!title) return;
     var accentMap = {
       instant: ['AI ', 'Company'],
-      builder: ['나만의 ', '방식'],
+      builder: ['', '플레이북'],
       discussion: ['AI ', 'Discussion'],
       foresight: ['', 'Foresight'],
       persona: ['Persona ', 'Workshop'],
       secretary: ['AI ', 'Secretary'],
-      schedule: ['', '스케줄팀'],
+      schedule: ['', '자동실행'],
       skill: ['내 ', '스킬'],
       law: ['AI ', '법령']
     };
@@ -553,27 +543,27 @@ var CardView = (function () {
           // 방식 설계 대화 (초기 또는 수정) → builder agent에게 전달
           if (_chatPanel) {
             _chatPanel.showThinking();
-            _chatPanel.setInputPlaceholder(isEditing ? '방식 수정 중...' : '방식 설계 중...');
+            _chatPanel.setInputPlaceholder(isEditing ? '플레이북 수정 중...' : '플레이북 설계 중...');
           }
           CardBuilder.sendMessage(text, _wsPanel ? _wsPanel.getSelectedFiles() : []);
         }
       } else if (_builderSubTab === 'saved') {
-        // 저장된 방식 탭
+        // 저장된 플레이북 탭
         var savedStrategy = CardBuilder.getCurrentStrategy();
         if (savedStrategy && isEditing) {
-          // 저장된 방식을 수정 중 → builder agent에게 전달
+          // 저장된 플레이북을 수정 중 → builder agent에게 전달
           if (_chatPanel) {
             _chatPanel.showThinking();
-            _chatPanel.setInputPlaceholder('방식 수정 중...');
+            _chatPanel.setInputPlaceholder('플레이북 수정 중...');
           }
           CardBuilder.sendMessage(text, _wsPanel ? _wsPanel.getSelectedFiles() : []);
         } else if (savedStrategy) {
-          // 방식 로드됨 + 수정 모드 아님 → 실행
+          // 플레이북 로드됨 + 수정 모드 아님 → 실행
           _startStrategyExecution(text, savedStrategy);
         } else {
-          // 방식 미선택 → 안내
+          // 플레이북 미선택 → 안내
           if (_chatPanel) {
-            _chatPanel.addMessage('먼저 위의 목록에서 방식을 선택하세요.', 'system');
+            _chatPanel.addMessage('먼저 위의 목록에서 플레이북을 선택하세요.', 'system');
           }
         }
       }
@@ -588,7 +578,7 @@ var CardView = (function () {
     document.getElementById('card-stop-btn').style.display = '';
     _lockChatUI();
     if (_chatPanel) {
-      _chatPanel.addMessage('🚀 "' + (strategy.name || '방식') + '" 프레임워크로 분석을 시작합니다...', 'system');
+      _chatPanel.addMessage('🚀 "' + (strategy.name || '플레이북') + '" 플레이북으로 작업을 시작합니다...', 'system');
       _chatPanel.showThinking();
     }
     _connectWS();
@@ -759,12 +749,12 @@ var CardView = (function () {
         }
         // Restore builder mode: placeholder + quick action buttons
         if (_activeMode === 'builder' && _chatPanel) {
-          _chatPanel.setInputPlaceholder('이 방식으로 업무를 지시하세요...');
+          _chatPanel.setInputPlaceholder('이 플레이북으로 업무를 지시하세요...');
           _chatPanel.addActionButtons([
             { label: '다른 업무 지시하기', icon: '🚀', action: function () {
-              _chatPanel.setInputPlaceholder('이 방식으로 업무를 지시하세요...');
+              _chatPanel.setInputPlaceholder('이 플레이북으로 업무를 지시하세요...');
             }},
-            { label: '저장된 방식 불러오기', icon: '📂', action: function () {
+            { label: '저장된 플레이북 불러오기', icon: '📂', action: function () {
               CardBuilder.showStrategyList();
             }},
           ]);

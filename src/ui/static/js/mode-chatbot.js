@@ -28,7 +28,7 @@
 
 (function () {
   const MODE_LABELS = {
-    builder: '내 방식', schedule: '스케줄팀',
+    builder: '플레이북', schedule: '자동실행',
     upgrade: '자동개발', skill: '스킬',
     discussion: '토론', foresight: '포사이트', persona: '페르소나',
     secretary: '비서', law: '법령',

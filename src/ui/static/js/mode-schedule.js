@@ -1,4 +1,4 @@
-/* mode-schedule.js — 스케줄팀 UI: 정기 자동 실행 관리
+/* mode-schedule.js — 자동실행 UI: 정기 자동 실행 관리
  *
  * 기존 company-builder WS를 통해 스케줄 CRUD.
  * 스케줄 목록 + 생성 폼 + 실행 이력 대시보드.
@@ -100,10 +100,10 @@ var ScheduleTeamManager = (function () {
     header.className = 'st-header';
     var title = document.createElement('h2');
     title.className = 'st-title';
-    title.textContent = '스케줄팀';
+    title.textContent = '자동실행';
     var subtitle = document.createElement('p');
     subtitle.className = 'st-subtitle';
-    subtitle.textContent = '정해진 시간에 자동으로 분석을 실행합니다.';
+    subtitle.textContent = '저장된 플레이북을 정해진 시간에 자동으로 실행합니다.';
     header.appendChild(title);
     header.appendChild(subtitle);
     wrapper.appendChild(header);
@@ -120,7 +120,7 @@ var ScheduleTeamManager = (function () {
     taskInput.className = 'st-input';
     taskInput.id = 'st-task';
     taskInput.placeholder = _selectedStrategy
-      ? '이 방식으로 실행할 작업 (예: 이번주 경쟁사 동향)'
+      ? '이 플레이북으로 실행할 작업 (예: 이번주 경쟁사 동향)'
       : '작업 내용 (예: 경쟁사 동향 모니터링)';
 
     // 시간 선택 UI (시/분/요일)
@@ -220,7 +220,7 @@ var ScheduleTeamManager = (function () {
     var addBtn = document.createElement('button');
     addBtn.className = 'st-add-btn';
     addBtn.id = 'st-add-btn';
-    addBtn.textContent = '+ 스케줄 추가';
+    addBtn.textContent = '+ 자동실행 추가';
     addBtn.addEventListener('click', function () {
       var task = document.getElementById('st-task').value.trim();
       if (!task && _selectedStrategy) {
@@ -255,7 +255,7 @@ var ScheduleTeamManager = (function () {
         } else {
           // 연결 실패 시 질문 없이 바로 저장
           addBtn.disabled = false;
-          addBtn.textContent = '+ 스케줄 추가';
+          addBtn.textContent = '+ 자동실행 추가';
           _saveScheduleWithAnswers([]);
         }
       };
@@ -275,13 +275,13 @@ var ScheduleTeamManager = (function () {
     // 스케줄 목록
     var listTitle = document.createElement('h3');
     listTitle.className = 'st-list-title';
-    listTitle.textContent = '등록된 스케줄 (' + _schedules.length + ')';
+    listTitle.textContent = '등록된 자동실행 (' + _schedules.length + ')';
     wrapper.appendChild(listTitle);
 
     if (_schedules.length === 0) {
       var empty = document.createElement('div');
       empty.className = 'st-empty';
-      empty.textContent = '등록된 스케줄이 없습니다.';
+      empty.textContent = '등록된 자동실행이 없습니다.';
       wrapper.appendChild(empty);
     } else {
       var list = document.createElement('div');
@@ -441,7 +441,7 @@ var ScheduleTeamManager = (function () {
   function _showDetailForm() {
     // 버튼 복원
     var addBtn = document.getElementById('st-add-btn');
-    if (addBtn) { addBtn.disabled = false; addBtn.textContent = '+ 스케줄 추가'; }
+    if (addBtn) { addBtn.disabled = false; addBtn.textContent = '+ 자동실행 추가'; }
 
     // 기존 폼 제거
     var old = document.getElementById('st-qa-form');
@@ -539,7 +539,7 @@ var ScheduleTeamManager = (function () {
     if (saved.enabled === false) return;  // 비활성 저장은 등록 안 되는 게 정상
     if (saved.registered === false) {
       var reason = saved.register_error || 'unknown';
-      var msg = '⚠️ 스케줄은 저장됐지만 자동 실행 등록에 실패했습니다.\n';
+      var msg = '⚠️ 자동실행은 저장됐지만 등록에 실패했습니다.\n';
       if (reason === 'scheduler_service_unavailable') {
         msg += '스케줄러가 시작되지 않았습니다. 서버를 재시작해주세요.';
       } else if (reason === 'registration_failed') {
@@ -570,7 +570,7 @@ var ScheduleTeamManager = (function () {
 
     var msg = document.createElement('div');
     msg.className = 'st-run-msg';
-    msg.textContent = '스케줄 실행 중...';
+    msg.textContent = '자동실행 진행 중...';
 
     var timer = document.createElement('div');
     timer.className = 'st-run-timer';
@@ -620,25 +620,21 @@ var ScheduleTeamManager = (function () {
 
     var title = document.createElement('div');
     title.className = 'sp-title';
-    title.textContent = '📅 분석 방식 선택';
+    title.textContent = '📅 플레이북 선택';
     wrap.appendChild(title);
 
-    // schedule 타입 전략만 필터 (general은 나만의 방식 탭 전용)
-    var schedStrategies = _strategies.filter(function (s) {
-      return (s.type || 'general') === 'schedule';
-    });
-
-    if (schedStrategies.length > 0) {
+    // 모든 저장된 플레이북 표시 (타입 필터 없음)
+    if (_strategies.length > 0) {
       var grid = document.createElement('div');
       grid.className = 'sp-grid';
-      for (var i = 0; i < schedStrategies.length; i++) {
+      for (var i = 0; i < _strategies.length; i++) {
         (function (s) {
           var card = document.createElement('div');
           card.className = 'sp-card' + (_selectedStrategy && _selectedStrategy.id === s.id ? ' sp-card-active' : '');
 
           var name = document.createElement('div');
           name.className = 'sp-card-name';
-          name.textContent = '📅 ' + (s.name || '방식');
+          name.textContent = '📒 ' + (s.name || '플레이북');
           card.appendChild(name);
 
           var desc = document.createElement('div');
@@ -652,10 +648,6 @@ var ScheduleTeamManager = (function () {
           depthTag.className = 'sp-card-tag';
           depthTag.textContent = s.depth || 'standard';
           meta.appendChild(depthTag);
-          var typeTag = document.createElement('span');
-          typeTag.className = 'sp-card-tag';
-          typeTag.textContent = '스케줄';
-          meta.appendChild(typeTag);
           card.appendChild(meta);
 
           card.addEventListener('click', function () {
@@ -663,13 +655,13 @@ var ScheduleTeamManager = (function () {
             _render();
           });
           grid.appendChild(card);
-        })(schedStrategies[i]);
+        })(_strategies[i]);
       }
       wrap.appendChild(grid);
     } else {
       var empty = document.createElement('div');
       empty.className = 'sp-empty';
-      empty.textContent = '저장된 스케줄 방식이 없습니다. "나만의 방식" 탭에서 📅 스케줄 타입을 만들어주세요.';
+      empty.textContent = '저장된 플레이북이 없습니다. "플레이북" 탭에서 먼저 플레이북을 만들어주세요.';
       wrap.appendChild(empty);
     }
 

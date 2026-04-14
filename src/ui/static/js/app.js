@@ -22,7 +22,7 @@ class ModeManager {
     CardView.switchMode(mode);
   }
 
-  /* Return to default landing mode (나만의 방식) */
+  /* Return to default landing mode (플레이북) */
   returnToLanding() {
     this.selectMode('builder');
   }

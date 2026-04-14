@@ -759,11 +759,7 @@ async def company_builder_endpoint(ws: WebSocket):
                     schedules = ss.list_schedules(user_id)
                     await ws.send_json({"type": "schedule_list", "data": {"schedules": schedules}})
 
-            # ── Strategy operations (분석 전략 프리셋) ──
-            elif msg_type == "set_strategy_type":
-                stype = msg.get("data", {}).get("strategy_type", "general")
-                strategy_session.set_strategy_type(stype)
-
+            # ── Strategy operations (플레이북 설계) ──
             elif msg_type == "strategy_message":
                 content = msg.get("data", {}).get("content", "")
                 workspace_files = msg.get("data", {}).get("workspace_files", [])
