@@ -43,23 +43,33 @@ def list_input_files(mode: str, base: Path | None = None) -> list[dict]:
 
 
 def _read_single_file(path: Path) -> str:
-    """단일 파일을 AI 컨텍스트 문자열로 변환."""
+    """단일 파일을 AI 컨텍스트 문자열로 변환.
+
+    절대경로를 항상 포함시켜, CLI 워커가 `Read` 도구로 첫 시도에 정확한
+    경로를 짚을 수 있게 한다. 텍스트 파일은 내용도 함께 임베드해서 워커가
+    굳이 Read를 호출하지 않아도 즉시 읽을 수 있다. 바이너리는 절대경로만
+    제공되므로 워커가 Read/Bash로 직접 접근한다.
+    """
     ext = path.suffix.lower()
     size = path.stat().st_size
     name = path.name
+    abs_path = str(path)
 
     if ext in _TEXT_EXTENSIONS and size <= _MAX_TEXT_SIZE:
         try:
             content = path.read_text(encoding="utf-8", errors="replace")
             return (
-                f"[첨부파일: {name} ({size:,} bytes)]\n"
+                f"[첨부파일: {name} ({size:,} bytes) — 절대경로: {abs_path}]\n"
                 f"--- 파일 내용 ---\n{content}\n--- 파일 끝 ---"
             )
         except Exception:
             pass
 
     kind = "이미지" if ext in _IMAGE_EXTENSIONS else "바이너리"
-    return f"[첨부파일: {name} ({size:,} bytes, {kind} 파일)]"
+    return (
+        f"[첨부파일: {name} ({size:,} bytes, {kind} 파일) — 절대경로: {abs_path}]\n"
+        f"이 파일은 위 절대경로로 `Read` 도구를 호출하면 직접 열어볼 수 있습니다."
+    )
 
 
 def read_files_as_context(
