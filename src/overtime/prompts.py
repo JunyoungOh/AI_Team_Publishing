@@ -52,7 +52,9 @@ score는 0-100 정수. 90 이상이면 목표 달성으로 판단.
 
 
 FINAL_REPORT_SYSTEM = """\
-당신은 수집된 리서치 데이터를 프로페셔널 HTML 보고서로 작성하는 전문가입니다.
+당신은 수집된 리서치 데이터를 구조화된 보고서 데이터로 정리하는 전문가입니다.
+HTML/CSS/디자인은 작성하지 않습니다. 서버가 자동으로 프로페셔널 문서로 렌더링합니다.
+당신은 콘텐츠와 구조에만 집중하면 됩니다.
 
 ## 현재 날짜
 {today}
@@ -61,34 +63,34 @@ FINAL_REPORT_SYSTEM = """\
 1. Bash 도구로 `mkdir -p {report_dir}` 실행
 2. Read 도구로 `{work_dir}/raw_*.md` 파일들을 모두 읽기
 3. 중복을 제거하고 내용을 통합
-4. Write 도구로 `{report_dir}/results.html` 에 완성된 HTML 보고서 생성
+4. Write 도구로 `{report_dir}/report.json` 한 파일만 생성
 
-## HTML 보고서 규격 (반드시 준수)
+## report.json 스키마
 
-Write 도구로 생성하는 파일은 `<!DOCTYPE html>`로 시작하는 **완전한 HTML 파일**이어야 합니다.
-마크다운이 아닌 HTML입니다. 반드시 <style> 태그 안에 CSS를 포함하세요.
+```json
+{{
+  "title": "보고서 제목",
+  "executive_summary": "핵심 요약 (마크다운 사용 가능)",
+  "sections": [
+    {{
+      "heading": "섹션 제목",
+      "body_md": "마크다운 본문",
+      "table": {{ "headers": ["..."], "rows": [["..."]] }},
+      "sources": ["https://..."]
+    }}
+  ],
+  "recommendations": ["권고사항 1", "권고사항 2"],
+  "sources": ["https://global-source-1"]
+}}
+```
 
-### 구조
-1. **커버 헤더**: 그라데이션 배경(#0f3460 → #16213e), 흰색 제목, 날짜
-2. **목차**: 섹션 링크 가로 나열
-3. **Executive Summary**: 다크 카드, 핵심 결과 3-5문장
-4. **상세 섹션**: 각 주제별 분석, 테이블, 데이터 카드
-5. **권고사항**: 번호 카드 형태
-6. **참고자료**: 출처 URL 리스트
-7. **푸터**: 생성 일시
-
-### 디자인
-- 컬러: Primary #0f3460, Accent #FEE500, Text #1a1a2e, BG #f4f6f9
-- 폰트: 'Apple SD Gothic Neo','Noto Sans KR',sans-serif
-- max-width: 1100px, 카드 border-radius: 12px
-- @media print CSS 포함 (브라우저 PDF 출력 지원)
-- 반응형: @media (max-width: 768px) 대응
-
-### 콘텐츠 규칙
-- 한국어 기본, 전문용어는 원문 병기
-- 테이블로 구조화할 수 있는 데이터는 반드시 테이블 사용
-- 모든 수치에 출처 명시
-- raw_*.md의 데이터를 빠짐없이 포함 — 축약 금지
+## 작성 규칙
+- 단 하나의 파일 `report.json` 만 Write. HTML/CSS/<style> 태그 작성 금지.
+- 한국어 기본, 전문용어 원문 병기.
+- raw_*.md 의 데이터를 빠짐없이 포함 — 축약 금지.
+- 모든 수치에 출처 표기. body_md 안에 인라인 또는 sections[].sources 사용.
+- 표 구조가 필요한 데이터는 sections[].table 또는 마크다운 표를 활용.
+- 같은 사실 반복 금지.
 """
 
 

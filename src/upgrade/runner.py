@@ -268,22 +268,53 @@ async def run_upgrade_dev(
     except Exception as e:
         _logger.error("upgrade_report_error", error=str(e))
 
+    from src.utils import report_renderer
+
+    Path(report_dir).mkdir(parents=True, exist_ok=True)
     report_file = Path(report_dir) / "results.html"
-    if not report_file.exists():
-        Path(report_dir).mkdir(parents=True, exist_ok=True)
-        report_file.write_text(
-            f"<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-            f"<title>업그레이드 완료</title></head>"
-            f"<body style='background:#0D1117;color:#E6EDF3;padding:40px;"
-            f"font-family:-apple-system,sans-serif;'>"
-            f"<h1>업그레이드 완료</h1>"
-            f"<h2>요청</h2><p>{task[:500]}</p>"
-            f"<h2>작업 폴더</h2><p><code>{folder_path}</code></p>"
-            f"<h2>백업 위치</h2><p><code>{backup_path}</code></p>"
-            f"<p>문제가 있으면 백업 폴더의 내용을 원본 위치로 복사해서 복원하세요.</p>"
-            f"</body></html>",
-            encoding="utf-8",
+    json_path = Path(report_dir) / "report.json"
+
+    rendered = False
+    if json_path.exists() and json_path.stat().st_size > 0:
+        try:
+            html = report_renderer.render_from_json_file(
+                json_path,
+                session_id=session_id,
+                mode_label="Upgrade Report",
+                fallback_title=task,
+            )
+            report_file.write_text(html, encoding="utf-8")
+            rendered = True
+            _logger.info("upgrade_rendered_from_json", path=str(report_file))
+        except Exception as exc:
+            _logger.warning("upgrade_render_json_failed", error=str(exc)[:200])
+
+    if not rendered:
+        sections = [
+            {"heading": "원래 지시사항", "body_md": task[:2000]},
+            {"heading": "작업한 앱 위치", "body_md": f"`{folder_path}`"},
+            {"heading": "백업 위치", "body_md": f"`{backup_path}`"},
+            {
+                "heading": "롤백 방법",
+                "body_md": (
+                    "문제가 있으면 백업 폴더의 내용을 원본 위치로 복사해 복원하세요.\n\n"
+                    f"```bash\ncp -R \"{backup_path}\"/* \"{folder_path}\"/\n```"
+                ),
+            },
+        ]
+        html = report_renderer.render_report(
+            title="업그레이드 완료",
+            sections=sections,
+            mode_label="Upgrade Report",
+            session_id=session_id,
+            banner={
+                "level": "warning",
+                "title": "리포트 생성 단계가 끝나지 않아 기본 정보만 표시합니다",
+                "body": "AI 가 최종 리포트를 작성하지 못해, 원본 지시사항과 폴더/백업 위치만 보여드립니다.",
+            },
         )
+        report_file.write_text(html, encoding="utf-8")
+        _logger.info("upgrade_rendered_fallback", path=str(report_file))
 
     _emit(session_id, "report", "complete",
           report_path=f"/reports/{session_id}",

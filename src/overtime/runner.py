@@ -436,20 +436,59 @@ async def run_overtime(
             })
             await asyncio.sleep(wait_sec)
 
-    # fallback
+    # 결과 렌더링: CLI 가 만든 report.json → 프로페셔널 HTML 로 변환.
+    # 실패하면 raw_*.md 통합본을 마크다운 fallback 으로 같은 템플릿에 렌더.
+    from src.utils import report_renderer
+
+    Path(report_dir).mkdir(parents=True, exist_ok=True)
     report_path = Path(report_dir) / "results.html"
-    if not report_path.exists():
-        Path(report_dir).mkdir(parents=True, exist_ok=True)
+    json_path = Path(report_dir) / "report.json"
+
+    rendered = False
+    if json_path.exists() and json_path.stat().st_size > 0:
+        try:
+            html = report_renderer.render_from_json_file(
+                json_path,
+                session_id=session_id,
+                mode_label="Overtime Report",
+                fallback_title=task,
+            )
+            report_path.write_text(html, encoding="utf-8")
+            rendered = True
+            _logger.info("overtime_rendered_from_json", path=str(report_path))
+        except Exception as exc:
+            _logger.warning("overtime_render_json_failed", error=str(exc)[:200])
+
+    if not rendered:
         raw_files = sorted(Path(work_dir).glob("raw_*.md"))
         combined = "\n\n---\n\n".join(
             f.read_text(encoding="utf-8") for f in raw_files if f.exists()
         )
-        import html as html_mod
-        report_path.write_text(
-            '<html><head><meta charset="UTF-8"></head>'
-            f'<body><pre>{html_mod.escape(combined[:50000])}</pre></body></html>',
-            encoding="utf-8",
-        )
+        if combined.strip():
+            sections = [{"heading": "수집된 리서치", "body_md": combined}]
+            html = report_renderer.render_report(
+                title=task,
+                sections=sections,
+                mode_label="Overtime Report",
+                session_id=session_id,
+                banner={
+                    "level": "warning",
+                    "title": "구조화 보고서 생성 실패 — 원본 수집 자료를 그대로 표시합니다",
+                    "body": "AI 가 최종 정리 단계에서 보고서를 만들지 못해, 각 iteration 에서 수집된 원본 자료를 그대로 보여드립니다.",
+                },
+            )
+            report_path.write_text(html, encoding="utf-8")
+            _logger.info("overtime_rendered_from_raw_md", path=str(report_path))
+        else:
+            html = report_renderer.render_partial_fallback(
+                user_task=task,
+                session_id=session_id,
+                raw_text="",
+                reason="empty_result",
+                mode_label="Overtime Report",
+            )
+            report_path.write_text(html, encoding="utf-8")
+            _logger.warning("overtime_empty_fallback", path=str(report_path))
 
     if overtime_id and user_id:
         update_overtime_iteration(

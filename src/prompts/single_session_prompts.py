@@ -6,7 +6,9 @@ that handles research, synthesis, and report generation using native tools.
 
 SINGLE_SESSION_SYSTEM = """\
 당신은 Enterprise Agent System의 실행 엔진입니다.
-사용자의 요청을 분석하고, 정보를 수집하고, 최종 HTML 보고서를 직접 생성합니다.
+사용자의 요청을 분석하고, 정보를 수집하고, 최종 결과를 구조화된 JSON 파일로 저장합니다.
+생성된 JSON은 서버 측 프로페셔널 템플릿으로 자동 렌더링되어 사용자에게 HTML 보고서로 제공됩니다.
+따라서 당신은 **콘텐츠와 구조에만 집중**하면 됩니다. CSS/HTML/디자인은 전혀 신경 쓰지 마세요.
 
 ## 실행 전략
 
@@ -30,8 +32,8 @@ Agent 3: "카카오 AI 전략 발표 내용을 검색해줘"
 수집된 정보의 출처를 교차 검증하세요.
 같은 사실의 반복(중복)을 제거하세요.
 
-### 4단계: 리포트 생성
-Write 도구로 HTML 보고서를 직접 생성하세요.
+### 4단계: 리포트 저장
+Write 도구로 구조화된 JSON 파일을 생성하세요. HTML/CSS 작성 금지.
 
 ## 도구 활용 가이드
 - **WebSearch**: 웹 검색 (기본 검색 도구)
@@ -50,33 +52,62 @@ Write 도구로 HTML 보고서를 직접 생성하세요.
 """
 
 
-REPORT_HTML_GUIDE = """\
-## HTML 보고서 규격
+REPORT_JSON_GUIDE_V2 = """\
+## 보고서 저장 규격 (report.json)
 
-자체 완결형 HTML 파일을 생성하세요. 외부 CSS/JS 의존 없음.
+Write 도구로 **단 하나의 파일** 만 생성하세요: `report.json`
+HTML, CSS, <style>, 인라인 디자인, 색상 코드, 그라데이션 등 모든 디자인 요소 작성 금지.
+서버가 이 JSON을 읽어 프로페셔널한 컨설팅 문서 스타일의 HTML로 자동 변환합니다.
 
-### 구조
-1. **커버 헤더**: 그라데이션 배경(#0f3460 → #16213e), 흰색 제목, 날짜
-2. **목차**: 섹션 링크 가로 나열
-3. **Executive Summary**: 다크 카드, 핵심 결과 3-5문장
-4. **상세 섹션**: 각 주제별 분석, 테이블, 데이터 카드
-5. **권고사항**: 번호 카드 형태
-6. **참고자료**: 출처 URL 리스트
-7. **푸터**: 생성 일시
+### 스키마
 
-### 디자인
-- 컬러: Primary #0f3460, Accent #FEE500, Text #1a1a2e, BG #f4f6f9
-- 폰트: 'Apple SD Gothic Neo','Noto Sans KR',sans-serif
-- max-width: 1100px, 카드 border-radius: 12px
-- @media print CSS 포함 (브라우저 PDF 출력 지원)
-- 반응형: @media (max-width: 768px) 대응
+```json
+{
+  "title": "보고서 제목 (한 줄)",
+  "executive_summary": "핵심 요약. 마크다운 사용 가능 (3~5문장 또는 짧은 단락).",
+  "sections": [
+    {
+      "heading": "섹션 제목",
+      "body_md": "마크다운으로 작성된 본문. 표는 마크다운 표 또는 아래 table 필드 사용.",
+      "table": {
+        "headers": ["컬럼1", "컬럼2"],
+        "rows": [["값A", "값B"], ["값C", "값D"]]
+      },
+      "sources": ["https://example.com/1", "https://example.com/2"]
+    }
+  ],
+  "recommendations": [
+    "권고사항 1 (한 문장)",
+    "권고사항 2"
+  ],
+  "sources": [
+    "https://global-source-1",
+    "https://global-source-2"
+  ]
+}
+```
 
-### 콘텐츠 규칙
-- 한국어 기본, 전문용어는 원문 병기
-- 테이블로 구조화할 수 있는 데이터는 반드시 테이블 사용
-- 모든 수치에 출처 명시
-- 최소 분량: 섹션 2개 이상, 데이터 포인트 5개 이상
+### 필드 규칙
+- `title`: **필수**. 제목만, 부제 없이.
+- `executive_summary`: 권장. 핵심 결론 한 단락. 마크다운 사용 가능.
+- `sections`: 권장. 최소 2개 이상 섹션. 각 섹션은 `heading` + `body_md` 가 기본.
+- `sections[].table`: **선택**. 표 구조가 필요한 데이터일 때만. headers 와 rows 를 함께 줄 것.
+- `sections[].sources`: **선택**. 그 섹션 전용 출처. 본문에 직접 링크를 박아도 됨.
+- `recommendations`: 권장. 짧고 실행 가능한 문장으로.
+- `sources`: 보고서 전체 출처 모음. 본문에서 인용한 모든 URL.
+
+### 작성 규칙
+1. 먼저 `mkdir -p {report_dir}` 실행
+2. **모든 데이터를 수집한 뒤 마지막에 한 번만 Write** — 중간 임시 파일 작성 금지.
+3. JSON 은 UTF-8 로 저장. 한국어 그대로, escape 처리 금지.
+4. body_md 안에는 마크다운 표/리스트/볼드/링크 자유롭게 사용. HTML 태그는 쓰지 말 것.
+5. 모든 수치에 출처 표기. body_md 안에 인라인으로 `(출처: URL)` 형태 또는 `sources` 배열 사용.
+6. 한국어 기본. 전문용어는 원문 병기.
+7. 같은 사실을 반복 서술하지 말 것.
 """
+
+# Alias for backward compatibility — anyone importing the old name still works
+REPORT_HTML_GUIDE = REPORT_JSON_GUIDE_V2
 
 REPORT_MARKDOWN_GUIDE = """\
 ## Markdown 문서 규격
@@ -136,10 +167,13 @@ JSON(.json) 파일을 생성하세요.
 - 모든 항목에 source 필드 포함
 """
 
-# 형식별 매핑 (pdf는 HTML 생성 후 변환)
+# 형식별 매핑.
+# html/pdf 는 CLI 가 직접 HTML 을 만들지 않고 구조화된 report.json 만 저장 →
+# Python 측 report_renderer 가 프로페셔널 템플릿으로 results.html 을 생성한다.
+# pdf 는 그 results.html 을 다시 PDF 로 변환.
 OUTPUT_FORMAT_MAP = {
-    "html": {"ext": "results.html", "guide": REPORT_HTML_GUIDE},
-    "pdf": {"ext": "results.html", "guide": REPORT_HTML_GUIDE},  # HTML 생성 → 후처리로 PDF 변환
+    "html": {"ext": "report.json", "guide": REPORT_JSON_GUIDE_V2},
+    "pdf": {"ext": "report.json", "guide": REPORT_JSON_GUIDE_V2},
     "markdown": {"ext": "results.md", "guide": REPORT_MARKDOWN_GUIDE},
     "csv": {"ext": "results.csv", "guide": REPORT_CSV_GUIDE},
     "json": {"ext": "results.json", "guide": REPORT_JSON_GUIDE},
@@ -212,23 +246,21 @@ def build_execution_prompt(
     output_filename = fmt["ext"]
     output_guide = fmt["guide"]
 
-    # 스케줄 실행 시: 파일명에 날짜 포함 + MD 동시 생성
+    # 스케줄 실행 시: 표준 report.json 외에 다음 실행이 비교용으로 참조할
+    # 날짜 포함 markdown 스냅샷도 함께 생성한다. HTML 스냅샷은 Python
+    # 렌더러가 report.json 으로부터 자동 생성하므로 CLI 가 만들 필요 없다.
     dated_output_block = ""
-    if is_scheduled:
-        dated_html = f"results_{today}.html"
+    if is_scheduled and output_format in ("html", "pdf"):
         dated_md = f"results_{today}.md"
         dated_output_block = f"""
-**스케줄 실행이므로 다음 2개 파일을 모두 생성하세요:**
-1. `{report_dir}/{dated_html}` — 사람이 보는 HTML 보고서
-2. `{report_dir}/{dated_md}` — 다음 실행에서 참조할 Markdown 요약
+**스케줄 실행이므로 다음 파일도 함께 생성하세요:**
+- `{report_dir}/{dated_md}` — 다음 실행에서 비교용으로 참조할 Markdown 스냅샷
 
 MD 파일 규칙:
-- HTML과 동일한 내용을 Markdown 형식으로 작성
+- report.json 과 동일한 내용을 순수 Markdown 형식으로 작성
 - 테이블, 수치, 출처를 모두 포함 (정보 손실 없이)
 - CSS/HTML 태그 없이 순수 Markdown만 사용
 """
-        # 스케줄에서는 날짜 포함 파일명을 기본 출력으로 사용
-        output_filename = dated_html
 
     # Delta 비교 블록: 이전 MD 파일이 있으면 비교 지시
     delta_block = ""

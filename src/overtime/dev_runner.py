@@ -301,25 +301,57 @@ async def run_dev_overtime(
     except Exception as e:
         _logger.error("dev_report_error", error=str(e))
 
-    # 리포트 파일 확인 + 폴백
+    # 리포트 렌더링: report.json 우선, 없으면 파일 목록 fallback
+    from src.utils import report_renderer
+
+    Path(report_dir).mkdir(parents=True, exist_ok=True)
     report_file = Path(report_dir) / "results.html"
-    if not report_file.exists():
-        Path(report_dir).mkdir(parents=True, exist_ok=True)
-        files = list(Path(work_dir).rglob("*"))
-        file_list = "\n".join(
-            f"  - {f.relative_to(work_dir)}" for f in files if f.is_file()
+    json_path = Path(report_dir) / "report.json"
+
+    rendered = False
+    if json_path.exists() and json_path.stat().st_size > 0:
+        try:
+            html = report_renderer.render_from_json_file(
+                json_path,
+                session_id=session_id,
+                mode_label="Development Report",
+                fallback_title=task,
+            )
+            report_file.write_text(html, encoding="utf-8")
+            rendered = True
+            _logger.info("dev_rendered_from_json", path=str(report_file))
+        except Exception as exc:
+            _logger.warning("dev_render_json_failed", error=str(exc)[:200])
+
+    if not rendered:
+        files = sorted(
+            f.relative_to(work_dir) for f in Path(work_dir).rglob("*") if f.is_file()
         )
-        report_file.write_text(
-            f"<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-            f"<title>개발 완료</title></head><body style='background:#0D1117;"
-            f"color:#E6EDF3;padding:40px;font-family:sans-serif;'>"
-            f"<h1>개발 완료</h1>"
-            f"<h2>요청</h2><p>{task[:500]}</p>"
-            f"<h2>생성된 파일</h2><pre>{file_list}</pre>"
-            f"<h2>실행 방법</h2><p>터미널에서 앱 폴더로 이동 후 실행하세요.</p>"
-            f"</body></html>",
-            encoding="utf-8",
+        file_list_md = "\n".join(f"- `{f}`" for f in files) or "_파일 없음_"
+        sections = [
+            {"heading": "원래 요청", "body_md": task[:2000]},
+            {"heading": "생성된 파일", "body_md": file_list_md},
+            {
+                "heading": "실행 방법",
+                "body_md": (
+                    f"앱 폴더로 이동한 뒤 실행하세요.\n\n"
+                    f"```bash\ncd {work_dir}\n```"
+                ),
+            },
+        ]
+        html = report_renderer.render_report(
+            title="개발 완료",
+            sections=sections,
+            mode_label="Development Report",
+            session_id=session_id,
+            banner={
+                "level": "warning",
+                "title": "리포트 생성 단계가 끝나지 않아 파일 목록만 표시합니다",
+                "body": "AI 가 최종 리포트를 작성하지 못해, 생성된 파일 목록과 기본 실행 안내만 보여드립니다.",
+            },
         )
+        report_file.write_text(html, encoding="utf-8")
+        _logger.info("dev_rendered_fallback", path=str(report_file))
 
     _emit(session_id, "report", "complete",
           report_path=f"/reports/{session_id}",

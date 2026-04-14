@@ -34,6 +34,8 @@ def error_terminal_node(state: dict) -> dict:
     even when the pipeline crashes.
     """
     import os
+    from src.utils import report_renderer
+
     error_msg = state.get("error_message", "Unknown error")
     session_id = state.get("session_id", "unknown")
     user_task = state.get("user_task", "")
@@ -42,14 +44,12 @@ def error_terminal_node(state: dict) -> dict:
     try:
         report_dir = os.path.join("data/reports", session_id)
         os.makedirs(report_dir, exist_ok=True)
-        html = (
-            f"<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-            f"<title>Error Report</title></head><body>"
-            f"<h1 style='color:#c0392b'>작업 실행 오류</h1>"
-            f"<p><strong>작업:</strong> {user_task}</p>"
-            f"<p><strong>오류:</strong> {error_msg}</p>"
-            f"<p style='color:#888'>파이프라인 실행 중 오류가 발생하여 중단되었습니다.</p>"
-            f"</body></html>"
+        html = report_renderer.render_partial_fallback(
+            user_task=user_task or "작업 실행 오류",
+            session_id=session_id,
+            raw_text=str(error_msg),
+            reason="pipeline_error",
+            mode_label="Error Report",
         )
         with open(os.path.join(report_dir, "results.html"), "w", encoding="utf-8") as f:
             f.write(html)

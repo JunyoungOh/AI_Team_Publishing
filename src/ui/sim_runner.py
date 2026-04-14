@@ -248,14 +248,19 @@ class SimSession:
         if not report_path:
             try:
                 from pathlib import Path as _Path
+                from src.utils import report_renderer
+
                 fallback_dir = _Path("data/reports") / thread_id
                 fallback_dir.mkdir(parents=True, exist_ok=True)
                 fallback_file = fallback_dir / "results.html"
                 if not fallback_file.exists():
                     fallback_file.write_text(
-                        "<html><body><h1>Report</h1>"
-                        "<p>작업이 완료되었으나 보고서 생성에 실패했습니다.</p>"
-                        "</body></html>",
+                        report_renderer.render_partial_fallback(
+                            user_task="작업 결과",
+                            session_id=thread_id,
+                            raw_text="",
+                            reason="no_artifact",
+                        ),
                         encoding="utf-8",
                     )
                 report_path = str(fallback_dir)

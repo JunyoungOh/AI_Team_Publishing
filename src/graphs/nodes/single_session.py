@@ -48,6 +48,19 @@ _SESSION_TOOLS = [
     "mcp__firecrawl__firecrawl_scrape",
 ]
 
+# finalize retry 단계는 네트워크 호출 없이 텍스트 정리만 하면 되므로
+# WebSearch/Agent/firecrawl 같이 idle timeout 의 실제 원인이 되는 도구를 제외한다.
+_FINALIZE_TOOLS = ["Read", "Write", "Bash", "Glob"]
+
+# CLI 가 stream idle 로 끊어졌는지 분류할 때 쓰는 키워드.
+# Anthropic API 의 stream idle 메시지가 부분 결과 경고로 함께 옴.
+_STREAM_IDLE_MARKERS = (
+    "stream idle",
+    "stream_idle",
+    "partial response received",
+    "partial response",
+)
+
 _MCP_VAR_PATTERN = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)\}")
 
 
@@ -177,11 +190,14 @@ async def _stream_session(
     model: str,
     max_turns: int,
     timeout: int,
-) -> tuple[str, bool]:
+) -> tuple[str, bool, bool]:
     """CLI subprocess를 스트리밍으로 실행하고 활동 이벤트를 emit.
 
     Returns:
-        (full_text, timed_out) — timed_out이 True면 타임아웃으로 중단됨.
+        (full_text, timed_out, stream_idle):
+        - timed_out: 우리 측 wall-clock timeout 으로 중단된 경우
+        - stream_idle: Anthropic API 가 stream idle / partial response 로
+          모델 응답을 중간에 잘라낸 경우. 이 경우 finalize retry 가 의미 있음.
     """
     from src.utils.claude_code import (
         _register_process,
@@ -235,6 +251,7 @@ async def _stream_session(
     tool_use_map: dict[str, str] = {}
 
     timed_out = False
+    stream_idle = False
     start_time = time.time()
 
     # 시작 이벤트
@@ -294,7 +311,16 @@ async def _stream_session(
                 elif event_type == "result":
                     result_text = event.get("result", "")
                     if event.get("is_error"):
-                        _logger.warning("single_session_result_error", error=result_text[:200])
+                        lower = (result_text or "").lower()
+                        if any(marker in lower for marker in _STREAM_IDLE_MARKERS):
+                            stream_idle = True
+                            _logger.warning(
+                                "single_session_stream_idle",
+                                error=result_text[:200],
+                                accumulated_chars=sum(len(t) for t in text_accumulator),
+                            )
+                        else:
+                            _logger.warning("single_session_result_error", error=result_text[:200])
                         if not text_accumulator:
                             text_accumulator.append(result_text)
                     elif not text_accumulator and result_text:
@@ -346,7 +372,186 @@ async def _stream_session(
         },
     })
 
-    return full_text, timed_out
+    return full_text, timed_out, stream_idle
+
+
+async def _finalize_retry(
+    *,
+    user_task: str,
+    report_dir: str,
+    partial_text: str,
+    session_id: str,
+    model: str,
+) -> bool:
+    """Stream idle 로 끊긴 세션을 짧은 retry 로 마무리.
+
+    네트워크 호출 없이 partial_text 를 그대로 받아 ``report.json`` 만
+    생성한다. 도구는 Read/Write/Bash/Glob 만 허용하여 idle timeout 의
+    재발 위험을 차단한다.
+
+    Returns:
+        True 면 ``{report_dir}/report.json`` 이 새로 생성됨. False 면 실패.
+    """
+    schema_hint = (
+        '{"title": "...", "executive_summary": "...", '
+        '"sections": [{"heading": "...", "body_md": "...", '
+        '"sources": ["..."]}], '
+        '"recommendations": ["..."], "sources": ["..."]}'
+    )
+    prompt = (
+        f"이전 리서치 세션이 응답 스트림 중간에 끊겼습니다. "
+        f"새로운 리서치를 절대 수행하지 마세요. 웹 검색이나 fetch 도구도 사용 금지. "
+        f"이미 수집된 아래 부분 결과만을 사용해서 "
+        f"`{report_dir}/report.json` 한 파일만 만드세요.\n\n"
+        f"먼저 `mkdir -p {report_dir}` 실행. "
+        f"그 다음 Write 도구로 한 번만 저장하면 끝입니다.\n\n"
+        f"## 원래 작업\n{user_task}\n\n"
+        f"## 부분 결과 (이것만 활용)\n{partial_text[:30000]}\n\n"
+        f"## JSON 스키마\n{schema_hint}\n\n"
+        f"누락된 정보는 있는 그대로 두고, 불완전한 보고서임을 "
+        f"executive_summary 첫 문장에 한 줄로만 알려주세요. "
+        f"새 정보를 지어내지 마세요."
+    )
+    finalize_system = (
+        "당신은 부분 결과를 받아 구조화된 JSON 으로 마무리하는 정리 담당입니다. "
+        "새로운 리서치는 절대 수행하지 마세요. Write 도구 한 번만 사용합니다."
+    )
+
+    try:
+        text, timed_out, _ = await _stream_session(
+            prompt=prompt,
+            system_prompt=finalize_system,
+            session_id=session_id,
+            model=model,
+            max_turns=3,
+            timeout=120,
+        )
+    except Exception as exc:
+        _logger.warning("single_session_finalize_retry_failed", error=str(exc)[:200])
+        return False
+
+    target = Path(report_dir) / "report.json"
+    if target.exists() and target.stat().st_size > 0:
+        _logger.info("single_session_finalize_retry_success", path=str(target), text_len=len(text))
+        return True
+    _logger.warning(
+        "single_session_finalize_retry_no_file",
+        report_dir=report_dir,
+        timed_out=timed_out,
+        text_len=len(text),
+    )
+    return False
+
+
+def _resolve_report_html(
+    *,
+    report_dir: str,
+    user_task: str,
+    session_id: str,
+    raw_text: str,
+    timed_out: bool,
+    stream_idle: bool,
+    timeout_s: int,
+) -> Path:
+    """CLI 세션이 끝난 뒤 사용자에게 보여줄 results.html 을 보장한다.
+
+    계단형 fallback:
+      1. report.json 이 있으면 → renderer 로 results.html 생성
+      2. CLI 가 직접 쓴 results.html 이 완결이면 → 그대로 둠
+      3. report.md / results.md 가 있으면 → renderer 로 results.html 생성
+      4. 그래도 없으면 → partial_fallback (호출 측이 finalize_retry 시도 후)
+    """
+    from src.utils import report_renderer
+
+    rd = Path(report_dir)
+    rd.mkdir(parents=True, exist_ok=True)
+    html_target = rd / "results.html"
+
+    # 1) 구조화 JSON 우선
+    json_path = rd / "report.json"
+    if json_path.exists() and json_path.stat().st_size > 0:
+        try:
+            html = report_renderer.render_from_json_file(
+                json_path,
+                session_id=session_id,
+                fallback_title=user_task,
+            )
+            html_target.write_text(html, encoding="utf-8")
+            _logger.info("single_session_rendered_from_json", path=str(html_target))
+            return html_target
+        except (ValueError, OSError, json.JSONDecodeError) as exc:
+            _logger.warning(
+                "single_session_render_json_failed",
+                path=str(json_path),
+                error=str(exc)[:200],
+            )
+
+    # 2) CLI 가 완결된 results.html 을 직접 썼다면 존중
+    if report_renderer.is_complete_html(html_target):
+        _logger.info("single_session_existing_html_kept", path=str(html_target))
+        return html_target
+    if html_target.exists():
+        try:
+            backup = html_target.with_suffix(".html.cli_partial.bak")
+            html_target.replace(backup)
+            _logger.info("single_session_partial_html_backed_up", backup=str(backup))
+        except OSError:
+            pass
+
+    # 3) markdown fallback
+    md_candidates = [rd / "report.md", rd / "results.md"]
+    md_candidates += sorted(rd.glob("results_*.md"))
+    md_candidates += sorted(rd.glob("*.md"))
+    seen: set[Path] = set()
+    for md_path in md_candidates:
+        if md_path in seen:
+            continue
+        seen.add(md_path)
+        if md_path.exists() and md_path.stat().st_size > 0:
+            try:
+                html = report_renderer.render_from_markdown_file(
+                    md_path,
+                    title=user_task or md_path.stem,
+                    session_id=session_id,
+                )
+                html_target.write_text(html, encoding="utf-8")
+                _logger.info(
+                    "single_session_rendered_from_markdown",
+                    path=str(html_target),
+                    source=str(md_path),
+                )
+                return html_target
+            except OSError as exc:
+                _logger.warning(
+                    "single_session_render_md_failed",
+                    path=str(md_path),
+                    error=str(exc)[:200],
+                )
+
+    # 4) 최후의 fallback — partial 화면을 같은 템플릿으로
+    if timed_out:
+        reason = "timeout"
+    elif stream_idle:
+        reason = "stream_idle_timeout"
+    elif not raw_text:
+        reason = "empty_result"
+    else:
+        reason = "no_artifact"
+
+    html = report_renderer.render_partial_fallback(
+        user_task=user_task,
+        session_id=session_id,
+        raw_text=raw_text,
+        reason=reason,
+        timeout_s=timeout_s,
+    )
+    html_target.write_text(html, encoding="utf-8")
+    _logger.warning(
+        "single_session_fallback_rendered",
+        reason=reason,
+        path=str(html_target),
+    )
+    return html_target
 
 
 async def single_session_node(state: dict) -> dict:
@@ -453,9 +658,11 @@ async def single_session_node(state: dict) -> dict:
 
     start_time = time.time()
     timed_out = False
+    stream_idle = False
+    result = ""
 
     try:
-        result, timed_out = await _stream_session(
+        result, timed_out, stream_idle = await _stream_session(
             prompt=prompt,
             system_prompt=SINGLE_SESSION_SYSTEM,
             session_id=session_id,
@@ -470,6 +677,7 @@ async def single_session_node(state: dict) -> dict:
             elapsed_s=round(elapsed, 1),
             result_len=len(result),
             timed_out=timed_out,
+            stream_idle=stream_idle,
         )
     except Exception as e:
         elapsed = time.time() - start_time
@@ -479,37 +687,40 @@ async def single_session_node(state: dict) -> dict:
             elapsed_s=round(elapsed, 1),
             error=str(e)[:300],
         )
-        result = ""
 
-    import glob as glob_mod
-    from src.prompts.single_session_prompts import OUTPUT_FORMAT_MAP
-    output_filename = OUTPUT_FORMAT_MAP.get(output_format, OUTPUT_FORMAT_MAP["html"])["ext"]
-    report_path = Path(report_dir) / output_filename
-    # 스케줄 모드: 날짜 파일명(results_YYYY-MM-DD.html)도 확인
-    if not report_path.exists():
-        dated_files = sorted(glob_mod.glob(str(Path(report_dir) / "results_*.html")), reverse=True)
-        if dated_files:
-            report_path = Path(dated_files[0])
-    # 형식이 HTML이 아닌 경우 해당 확장자도 확인
-    if not report_path.exists() and output_format != "html":
-        html_path = Path(report_dir) / "results.html"
-        if html_path.exists():
-            report_path = html_path
-    if not report_path.exists():
-        _logger.warning(
-            "single_session_no_report_file",
+    # ── 결과 파일 리졸브 ──
+    # text-format 모드(markdown/csv/json) 에서는 사용자가 명시한 결과 파일이
+    # 핵심이지만, 사용자가 보는 카드는 결국 results.html 이므로 항상 HTML
+    # 한 본은 만들어둔다. report.json 또는 raw text 어느 쪽이든 같은 템플릿
+    # 으로 렌더되어 "크래시" 화면이 발생하지 않게 한다.
+    json_path = Path(report_dir) / "report.json"
+    if not json_path.exists() and stream_idle and result:
+        # 응답이 중간에 끊겼지만 부분 결과는 있다 → 짧은 finalize retry 로 복구.
+        emit_mode_event(session_id, {
+            "type": "activity",
+            "data": {
+                "action": "finalizing",
+                "message": "🩹 응답이 중단되어 부분 결과를 정리하는 중…",
+                "elapsed": round(time.time() - start_time, 1),
+            },
+        })
+        await _finalize_retry(
+            user_task=user_task,
+            report_dir=report_dir,
+            partial_text=result,
             session_id=session_id,
-            timed_out=timed_out,
+            model=settings.worker_model,
         )
-        Path(report_dir).mkdir(parents=True, exist_ok=True)
-        fallback = Path(report_dir) / "results.html"
-        fallback.write_text(
-            _build_fallback_html(
-                result, user_task, session_id,
-                is_timeout=timed_out, timeout_s=timeout,
-            ),
-            encoding="utf-8",
-        )
+
+    _resolve_report_html(
+        report_dir=report_dir,
+        user_task=user_task,
+        session_id=session_id,
+        raw_text=result,
+        timed_out=timed_out,
+        stream_idle=stream_idle,
+        timeout_s=timeout,
+    )
 
     # PDF 후처리: HTML → PDF 변환
     if output_format == "pdf":
@@ -540,70 +751,3 @@ async def single_session_node(state: dict) -> dict:
     }
 
 
-def _build_fallback_html(
-    result: str,
-    user_task: str,
-    session_id: str,
-    is_timeout: bool = False,
-    timeout_s: int = 0,
-) -> str:
-    """CLI 세션이 HTML 파일을 직접 생성하지 못한 경우의 fallback.
-
-    타임아웃이 원인이면 상단에 경고 배너를 표시하여 사용자가 결과의 불완전성을
-    알 수 있게 합니다. 내용은 모델이 생성한 raw text (학습용 인사이트 블록 등
-    포함) — "크래시"가 아니라 "부분 결과"임을 명확히 안내합니다.
-    """
-    from datetime import datetime
-    import html as html_mod
-
-    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    escaped_task = html_mod.escape(user_task)
-    escaped_result = html_mod.escape(result[:50000] if result else "(결과 없음)")
-
-    banner_html = ""
-    title_prefix = ""
-    if is_timeout:
-        title_prefix = "[미완료] "
-        banner_html = (
-            '<div class="warning">'
-            '<div class="warning-title">⚠️ 작업이 시간 제한으로 중단되었습니다</div>'
-            f'<p>AI가 최종 보고서를 완성하기 전에 타임아웃({timeout_s}초)이 발생했습니다. '
-            '아래는 AI가 작업 중 생성한 <strong>부분 결과</strong>입니다. '
-            '완전한 보고서를 위해서는 다음을 시도해보세요:</p>'
-            '<ul>'
-            '<li>작업 범위를 더 구체적으로 좁히기</li>'
-            '<li>관점(perspectives) 개수 줄이기</li>'
-            '<li>분석 깊이(depth)를 light 또는 standard로 변경</li>'
-            '</ul>'
-            '</div>'
-        )
-    elif not result:
-        banner_html = (
-            '<div class="warning">'
-            '<div class="warning-title">⚠️ AI 응답이 비어있습니다</div>'
-            '<p>CLI 세션이 결과를 반환하지 않았습니다. 다시 시도해보세요.</p>'
-            '</div>'
-        )
-
-    return (
-        '<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">'
-        '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
-        f'<title>{title_prefix}{escaped_task}</title>'
-        '<style>'
-        "body{font-family:'Apple SD Gothic Neo','Noto Sans KR',sans-serif;"
-        "max-width:900px;margin:0 auto;padding:40px 24px;color:#1a1a2e;background:#f4f6f9;line-height:1.7}"
-        ".header{background:linear-gradient(135deg,#0f3460,#16213e);color:#fff;padding:40px;border-radius:12px;margin-bottom:24px}"
-        ".header h1{font-size:24px;margin:0 0 8px}"
-        ".header .meta{font-size:12px;opacity:0.6}"
-        ".warning{background:#fff8e1;border:1px solid #f59e0b;border-left:4px solid #f59e0b;padding:20px 24px;border-radius:8px;margin-bottom:24px;color:#7c2d12}"
-        ".warning-title{font-weight:700;font-size:16px;margin-bottom:8px}"
-        ".warning ul{margin:8px 0 0 20px;padding:0}"
-        ".warning li{margin:4px 0}"
-        ".content{background:#fff;padding:32px;border-radius:12px;border:1px solid #e0e5ee;white-space:pre-wrap;font-size:14px}"
-        '</style></head><body>'
-        f'<div class="header"><h1>{title_prefix}{escaped_task}</h1>'
-        f'<div class="meta">Generated {generated_at} | Session {session_id}</div></div>'
-        f'{banner_html}'
-        f'<div class="content">{escaped_result}</div>'
-        '</body></html>'
-    )
