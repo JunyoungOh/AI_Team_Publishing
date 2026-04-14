@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 import time
 
 from src.secretary.config import SecretaryConfig
@@ -163,6 +164,7 @@ class ChatEngine:
             cwd="/tmp",
             start_new_session=True,
             env=env,
+            limit=sys.maxsize,
         )
         _register_process(proc)
 

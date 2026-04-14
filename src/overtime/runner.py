@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -164,6 +165,7 @@ async def _run_cli_session(
         cwd=cwd or os.getcwd(),
         start_new_session=True,
         env=env,
+        limit=sys.maxsize,
     )
     _register_process(proc)
 

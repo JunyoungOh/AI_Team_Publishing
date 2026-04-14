@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 import time
 from typing import Awaitable, Callable, Optional
 
@@ -27,6 +28,7 @@ async def _default_proc_factory(
         cwd=cwd,
         start_new_session=True,
         env=env,
+        limit=sys.maxsize,
     )
 
 
