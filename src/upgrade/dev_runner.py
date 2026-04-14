@@ -1,5 +1,5 @@
-# src/overtime/dev_runner.py
-"""야근팀 개발 모드 runner.
+# src/upgrade/dev_runner.py
+"""자동개발 — 0→1 최초개발 runner.
 
 흐름:
   1. 명확화 질문 생성 (CLI 1회) → UI로 전달 → 사용자 답변 대기
@@ -7,27 +7,29 @@
      - rate limit → 사용량 파일에서 리셋 시점 읽어 정확히 대기 후 재개
      - 컨텍스트 한계 → PROGRESS.md 기반 새 세션 handoff
   3. 완료 리포트 생성 (CLI 1회)
+
+NOTE: 워크스페이스 네임스페이스는 역사적 이유로 'overtime'을 그대로 사용한다.
+      (야근팀 탭에서 자동개발 탭으로 dev 모드가 이사할 때 디스크 경로를
+       변경하지 않은 잔재 — 사용자 데이터 호환성을 위해 유지.)
 """
 from __future__ import annotations
 
 import asyncio
-import json
-import os
 import time
 from pathlib import Path
 
 from src.config.settings import get_settings
 from src.modes.common import emit_mode_event
-from src.overtime.dev_prompts import (
+from src.upgrade.dev_prompts import (
     build_clarify_prompt,
     build_dev_system_prompt,
     build_handoff_prompt,
     build_report_prompt,
 )
-from src.overtime.runner import (
+from src.utils.cli_session import (
     RateLimitError,
-    _run_cli_session,
     _get_rate_limit_wait,
+    _run_cli_session,
 )
 from src.utils.logging import get_logger
 
@@ -38,6 +40,9 @@ _REPORT_TOOLS = ["Read", "Write", "Bash", "Glob", "Grep"]
 
 MAX_SESSIONS = 10
 _COMPLETION_MARKER = "ALL_PHASES_DONE"
+
+# 자동개발이 사용하는 워크스페이스 네임스페이스 (역사적 이름).
+_WORKSPACE_MODE = "overtime"
 
 
 def _emit(session_id: str, phase: str, action: str, *, event_type: str = "dev_progress", **kwargs):
@@ -69,6 +74,10 @@ async def _run_with_rate_limit_retry(
     - 기타 오류: max_non_rl_retries까지만 재시도
     - cwd: 강화소 등 외부 폴더 작업 시 사용
     - emit_event_type: 재시도/rate-limit 알림을 어떤 WS 타입으로 보낼지
+    - activity_event_type: 도구 사용 이벤트 WS 타입. 자동개발(최초개발)은
+      mode-upgrade.js가 'overtime_activity'를 listen 하므로 기본값 유지
+      (역사적 이름 — 야근팀 시절부터 쓰던 것). 강화소는 'upgrade_activity'
+      를 별도로 전달한다.
     """
     non_rl_attempts = 0
 
@@ -86,11 +95,10 @@ async def _run_with_rate_limit_retry(
                 activity_event_type=activity_event_type,
                 effort=effort,
             )
-        except RateLimitError as e:
+        except RateLimitError:
             wait_sec, is_rl = _get_rate_limit_wait()
 
             if not is_rl:
-                # rate limit이 아닌 다른 오류
                 non_rl_attempts += 1
                 if non_rl_attempts >= max_non_rl_retries:
                     raise
@@ -100,7 +108,6 @@ async def _run_with_rate_limit_retry(
                 await asyncio.sleep(30)
                 continue
 
-            # 실제 rate limit — 리셋까지 대기
             wait_min = wait_sec // 60
             _logger.warning("dev_rate_limited", phase=phase, wait_s=wait_sec)
             _emit(session_id, phase, "rate_limited",
@@ -118,9 +125,9 @@ async def generate_clarify_questions(
 ) -> str:
     """명확화 질문 생성. bridge.structured_query + Pydantic 스키마로 구조화된 응답 강제.
 
-    workspace_files가 있으면 `data/workspace/overtime/input/` 기준 절대경로로
-    변환해서 prompt에 주입한다. 이렇게 하면 clarify LLM이 파일 선택 자체를
-    되묻지 않는다.
+    workspace_files가 있으면 `data/workspace/{_WORKSPACE_MODE}/input/` 기준
+    절대경로로 변환해서 prompt에 주입한다. 이렇게 하면 clarify LLM이 파일
+    선택 자체를 되묻지 않는다.
     """
     from pydantic import BaseModel, Field
     from src.utils.bridge_factory import get_bridge
@@ -131,7 +138,7 @@ async def generate_clarify_questions(
         questions: list[str] = Field(min_length=1, max_length=5, description="3~5개 질문 목록")
 
     settings = get_settings()
-    file_paths = resolve_selected_paths("overtime", workspace_files or [])
+    file_paths = resolve_selected_paths(_WORKSPACE_MODE, workspace_files or [])
     system, user = build_clarify_prompt(task, file_paths=file_paths)
 
     _emit(session_id, "clarify", "generating", message="명확화 질문 생성 중")
@@ -188,21 +195,24 @@ async def run_dev_overtime(
 ) -> str:
     """개발 모드 메인 실행. 완료 시 report_dir 반환.
 
-    workspace_files에 파일명이 담겨 있으면 `data/workspace/overtime/input/`
+    workspace_files에 파일명이 담겨 있으면 `data/workspace/{_WORKSPACE_MODE}/input/`
     기준 절대경로로 변환해서 dev system prompt에 주입한다. CLI는 Read 도구로
     해당 경로의 파일을 직접 열어본다.
+
+    NOTE: `overtime_id` 인자는 더 이상 사용되지 않는다 (야근팀 storage 제거됨).
+          하위 호환을 위해 시그니처는 유지하지만 무시된다.
     """
-    from src.company_builder.storage import update_overtime_iteration
+    del overtime_id, user_id  # unused — overtime storage CRUD 제거됨
     from src.utils.workspace import resolve_selected_paths
 
     from src.utils.report_paths import build_report_dir
 
     settings = get_settings()
-    work_dir = f"data/workspace/overtime/output/{session_id}/app"
+    work_dir = f"data/workspace/{_WORKSPACE_MODE}/output/{session_id}/app"
     report_dir = str(build_report_dir(task, session_id=session_id))
     Path(work_dir).mkdir(parents=True, exist_ok=True)
 
-    file_paths = resolve_selected_paths("overtime", workspace_files or [])
+    file_paths = resolve_selected_paths(_WORKSPACE_MODE, workspace_files or [])
 
     handoff_context = ""
     dev_complete = False
@@ -272,13 +282,6 @@ async def run_dev_overtime(
             _emit(session_id, "dev", "handoff",
                   message=f"세션 #{session_num} — 진행 파일 없음, 재시도")
             handoff_context = ""
-
-        if overtime_id and user_id:
-            update_overtime_iteration(user_id, overtime_id, {
-                "id": f"dev_session_{session_num}",
-                "action": "session_complete",
-                "completed": dev_complete,
-            }, status="running")
 
     if not dev_complete:
         _emit(session_id, "dev", "max_sessions",
@@ -378,12 +381,5 @@ async def run_dev_overtime(
           app_dir=work_dir,
           run_command=str(run_cmd_path) if run_cmd_path else None,
           message="리포트 생성 완료")
-
-    if overtime_id and user_id:
-        update_overtime_iteration(user_id, overtime_id, {
-            "id": "dev_final",
-            "action": "completed",
-            "report_dir": report_dir,
-        }, status="completed")
 
     return report_dir

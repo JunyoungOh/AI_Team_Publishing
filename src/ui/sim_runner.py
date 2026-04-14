@@ -67,7 +67,7 @@ class SimSession:
         self._strategy: dict | None = None
         self._output_format: str = "html"
         self._workspace_files: list[str] = []
-        self._workspace_mode: str = "instant"
+        self._workspace_mode: str = "builder"
 
     async def run(self):
         """Main loop: send init, idle until start, run graph, handle interrupts."""
@@ -98,7 +98,7 @@ class SimSession:
                 self._strategy = msg.get("strategy")  # 전략 프리셋
                 self._output_format = msg.get("output_format", "html")
                 self._workspace_files = msg.get("workspace_files", [])
-                self._workspace_mode = msg.get("workspace_mode", "instant")
+                self._workspace_mode = msg.get("workspace_mode", "builder")
                 print(f"[SIM-START] task='{user_task[:50]}', team_id='{self._team_id}', strategy={'yes' if self._strategy else 'no'}, format={self._output_format}, user_id='{self._user_id}'")
                 break
 

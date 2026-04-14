@@ -5,7 +5,7 @@ var CardView = (function () {
   /* ── Internal state ── */
   var _editor = null;       // Drawflow instance
   var _chatPanel = null;    // CardChatPanel instance
-  var _activeMode = 'instant'; // 'instant' | 'builder' | 'discussion' | 'foresight' | 'persona' | 'secretary'
+  var _activeMode = 'builder'; // 'builder' | 'discussion' | 'foresight' | 'persona' | 'secretary'
   var _nodeMap = {};         // { agentId: drawflowNodeId }
   var _ws = null;            // WebSocket instance
   var _wsReady = false;      // WebSocket open state
@@ -26,7 +26,6 @@ var CardView = (function () {
 
   /* ── Welcome messages per mode ── */
   var WELCOME = {
-    instant: '업무를 지시해주세요. CEO가 팀을 구성하고 실행합니다.',
     'builder-create': '',  // 타입 선택 UI가 대신 표시됨
     'builder-saved': '',
   };
@@ -37,7 +36,6 @@ var CardView = (function () {
 
   /* ── Mode titles for header ── */
   var _modeTitles = {
-    instant: 'AI Company',
     builder: 'AI Company',
     discussion: 'AI 토론',
     foresight: 'Foresight',
@@ -66,8 +64,8 @@ var CardView = (function () {
     // URL 해시
     location.hash = mode;
 
-    // Company 모드 (instant/builder)
-    if (mode === 'instant' || mode === 'builder') {
+    // Company 모드 (builder)
+    if (mode === 'builder') {
       _showCompanyMode(mode, prevMode);
       return;
     }
@@ -91,7 +89,7 @@ var CardView = (function () {
 
     var app = document.getElementById('card-app');
 
-    // 인스턴트 + 빌더 모두 풀와이드 채팅 (canvas 숨김)
+    // 풀와이드 채팅 (canvas 숨김)
     if (app) app.classList.add('chat-fullwidth');
 
     // builder 모드: 하위 탭 기반 모드 키로 전환
@@ -120,8 +118,7 @@ var CardView = (function () {
     if (_wsPanel) { _wsPanel.destroy(); _wsPanel = null; }
     var chatContainer = document.getElementById('card-chat');
     if (chatContainer && typeof WorkspacePanel !== 'undefined') {
-      var wsMode = (mode === 'builder') ? 'builder' : 'instant';
-      _wsPanel = WorkspacePanel.create(chatContainer, wsMode);
+      _wsPanel = WorkspacePanel.create(chatContainer, 'builder');
     }
 
     // 실행 중인 모드로 복귀하면 UI 복원
@@ -165,16 +162,6 @@ var CardView = (function () {
     if (_chatPanel) {
       var welcomeMsg = WELCOME[chatMode] || WELCOME[mode] || '';
       if (welcomeMsg) _chatPanel.addMessage(welcomeMsg, 'system', { welcome: true });
-
-      if (mode === 'instant') {
-        _chatPanel.showFormatSelector([
-          { id: 'html', label: 'HTML', icon: '📄', default: true },
-          { id: 'pdf', label: 'PDF', icon: '📑' },
-          { id: 'markdown', label: 'Markdown', icon: '📝' },
-          { id: 'csv', label: 'CSV', icon: '📊' },
-          { id: 'json', label: 'JSON', icon: '{}' },
-        ]);
-      }
 
       // builder-create 탭: 타입 선택 UI 표시
       if (chatMode === 'builder-create') {
@@ -418,11 +405,6 @@ var CardView = (function () {
           ScheduleTeamManager.mountInShell(container); _modeBooted[mode] = true;
         }
         break;
-      case 'overtime':
-        if (typeof OvertimeManager !== 'undefined' && OvertimeManager.mountInShell) {
-          OvertimeManager.mountInShell(container); _modeBooted[mode] = true;
-        }
-        break;
       case 'upgrade':
         if (typeof UpgradeManager !== 'undefined' && UpgradeManager.mountInShell) {
           UpgradeManager.mountInShell(container); _modeBooted[mode] = true;
@@ -452,7 +434,6 @@ var CardView = (function () {
       persona: ['Persona ', 'Workshop'],
       secretary: ['AI ', 'Secretary'],
       schedule: ['', '스케줄팀'],
-      overtime: ['', '야근팀'],
       skill: ['내 ', '스킬'],
       law: ['AI ', '법령']
     };
@@ -492,8 +473,8 @@ var CardView = (function () {
       _signalRunning(false);
       _runningMode = null;
       _ws = null;
-      // Reconnect only if instant mode is active
-      if (_activeMode === 'instant') {
+      // Reconnect only if Company (builder) mode is active
+      if (_activeMode === 'builder') {
         setTimeout(_connectWS, 3000);
       }
     };
@@ -536,53 +517,19 @@ var CardView = (function () {
   }
 
   function _handleChatMessage(text) {
-    if (_activeMode === 'instant') {
-      if (!_running) {
-        // Start a new pipeline run
-        _running = true;
-        _runningMode = _activeMode;
-        _signalRunning(true);
-        CardEventHandler.reset();
-        document.getElementById('card-stop-btn').style.display = '';
-        _lockChatUI();
-        _connectWS();
-        // Wait for WS to open, then send (max 5s timeout)
-        var retries = 0;
-        var sendStart = function () {
-          if (_wsReady) {
-            var fmt = (_chatPanel && _chatPanel.getSelectedFormat) ? _chatPanel.getSelectedFormat() : 'html';
-            if (fmt !== 'html' && _chatPanel) {
-              var fmtLabels = { markdown: 'Markdown', csv: 'CSV', json: 'JSON' };
-              _chatPanel.addMessage('📎 출력 형식: ' + (fmtLabels[fmt] || fmt), 'system');
-            }
-            var wsFiles = _wsPanel ? _wsPanel.getSelectedFiles() : [];
-            _sendWS({ type: 'start', task: text, output_format: fmt, workspace_files: wsFiles, workspace_mode: 'instant' });
-          } else if (retries < 50) {
-            retries++;
-            setTimeout(sendStart, 100);
-          } else {
-            _running = false;
-            _signalRunning(false);
-            document.getElementById('card-stop-btn').style.display = 'none';
-            _unlockChatUI();
-            if (_chatPanel) {
-              _chatPanel.addMessage('❌ 서버에 연결할 수 없습니다. 인터넷 연결을 확인하고 잠시 후 다시 시도해 주세요.', 'system');
-            }
-          }
-        };
-        sendStart();
-      } else {
-        // If running and there's an interrupt pending, send interrupt response
-        // Send as plain string — server passes data directly to graph resume
-        _sendWS({ type: 'interrupt_response', data: text });
-        if (_chatPanel) {
-          _chatPanel.addMessage('🔄 답변을 확인했습니다. 정보를 수집하고 보고서를 작성 중입니다...', 'system');
-          _chatPanel.setInputPlaceholder('작업 진행 중...');
-          _chatPanel.showThinking();
-          _chatPanel.setInputDisabled(true);
-        }
+    if (_running && _activeMode === 'builder') {
+      // 실행 중에 들어오는 텍스트는 interrupt 응답으로 전달
+      _sendWS({ type: 'interrupt_response', data: text });
+      if (_chatPanel) {
+        _chatPanel.addMessage('🔄 답변을 확인했습니다. 정보를 수집하고 보고서를 작성 중입니다...', 'system');
+        _chatPanel.setInputPlaceholder('작업 진행 중...');
+        _chatPanel.showThinking();
+        _chatPanel.setInputDisabled(true);
       }
-    } else if (_activeMode === 'builder') {
+      return;
+    }
+
+    if (_activeMode === 'builder') {
       if (_running) {
         // 실행 중에는 입력이 lock되어 있어 이 분기에 도달하지 않아야 함.
         // 혹시 도달하면 무시하고 안내.
@@ -848,7 +795,7 @@ var CardView = (function () {
       },
     });
 
-    _selectSidebarMode('instant');
+    _selectSidebarMode('builder');
     _chatPanel.toggle(true);
     _connectWS();
     _applyRBAC();
@@ -946,7 +893,7 @@ var CardView = (function () {
 
   /**
    * getActiveMode — Returns the current sidebar mode.
-   * @returns {'instant'|'builder'}
+   * @returns {'builder'|'discussion'|'foresight'|'persona'|'secretary'|'law'}
    */
   function getActiveMode() {
     return _activeMode;
@@ -1043,7 +990,7 @@ var CardView = (function () {
 
     document.querySelectorAll('#card-sidebar .cs-item[data-card-mode]').forEach(function(item) {
       var mode = item.dataset.cardMode;
-      if (mode !== 'instant' && !vm.includes(mode)) {
+      if (!vm.includes(mode)) {
         item.style.display = 'none';
       }
     });

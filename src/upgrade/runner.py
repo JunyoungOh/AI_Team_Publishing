@@ -3,7 +3,7 @@
 흐름:
   1. analyze_and_clarify(folder, task) — CLI 1회 호출로 앱 분석 + 질문 생성
   2. run_upgrade_dev(folder, task, answers, analysis) — 업그레이드 실행 (장시간)
-     - rate limit 시 자동 재개 (overtime/dev_runner의 _run_with_rate_limit_retry 재사용)
+     - rate limit 시 자동 재개 (upgrade/dev_runner의 _run_with_rate_limit_retry 재사용)
      - 컨텍스트 한계 시 PROGRESS_UPGRADE.md 기반 handoff, 최대 MAX_SESSIONS
   3. run_upgrade_report(...) — 완료 리포트 HTML 생성
 """
@@ -16,9 +16,9 @@ from pathlib import Path
 
 from src.config.settings import get_settings
 from src.modes.common import emit_mode_event
-from src.overtime.dev_runner import _run_with_rate_limit_retry
-from src.overtime.runner import _run_cli_session
 from src.upgrade.backup import create_backup, validate_target_folder
+from src.upgrade.dev_runner import _run_with_rate_limit_retry
+from src.utils.cli_session import _run_cli_session
 from src.upgrade.prompts import (
     build_analyze_prompt,
     build_report_prompt,

@@ -22,9 +22,9 @@ class ModeManager {
     CardView.switchMode(mode);
   }
 
-  /* Return to instant mode */
+  /* Return to default landing mode (나만의 방식) */
   returnToLanding() {
-    this.selectMode('instant');
+    this.selectMode('builder');
   }
 
   /* Mark a mode as running/stopped */
@@ -433,14 +433,14 @@ const Auth = {
     const mm = new ModeManager();
     window._modeManager = mm;
     var hash = location.hash.replace('#', '');
-    if (hash === 'company') hash = 'instant'; // backward compat
+    if (hash === 'company' || hash === 'instant') hash = 'builder'; // backward compat
     const vm = Auth.user && Auth.user.visible_modes;
     const canAccess = (mode) => !vm || vm.includes(mode);
-    const validModes = ['instant','builder','discussion','foresight','persona','secretary','law'];
+    const validModes = ['builder','discussion','foresight','persona','secretary','law'];
     if (hash && validModes.includes(hash) && canAccess(hash)) {
       mm.selectMode(hash);
     } else {
-      mm.selectMode('instant');
+      mm.selectMode('builder');
     }
   }
 };
@@ -481,14 +481,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const mm = new ModeManager();
     window._modeManager = mm;
     var hash = location.hash.replace('#', '');
-    if (hash === 'company') hash = 'instant'; // backward compat
+    if (hash === 'company' || hash === 'instant') hash = 'builder'; // backward compat
     const vm = Auth.user && Auth.user.visible_modes;
     const canAccess = (mode) => !vm || vm.includes(mode);
-    const validModes = ['instant','builder','discussion','foresight','persona','secretary','law'];
+    const validModes = ['builder','discussion','foresight','persona','secretary','law'];
     if (hash && validModes.includes(hash) && canAccess(hash)) {
       mm.selectMode(hash);
     } else {
-      mm.selectMode('instant');
+      mm.selectMode('builder');
     }
     // Claude Code 사용량 바 마운트
     if (typeof UsageBar !== 'undefined') UsageBar.mount();

@@ -1,5 +1,5 @@
 """개발 모드 프롬프트 빌드 테스트."""
-from src.overtime.dev_prompts import (
+from src.upgrade.dev_prompts import (
     build_clarify_prompt,
     build_dev_system_prompt,
     build_handoff_prompt,

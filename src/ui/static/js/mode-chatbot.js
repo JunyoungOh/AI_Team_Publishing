@@ -15,7 +15,7 @@
      window.chatbotSignal(slug, running, status?)
    or equivalently:
      window.dispatchEvent(new CustomEvent('chatbot:mode-state', {
-       detail: { mode: 'overtime', running: true }
+       detail: { mode: 'upgrade', running: true }
      }));
 
    WebSocket: /ws/chatbot  (bot_init / bot_stream / bot_message events)
@@ -28,8 +28,8 @@
 
 (function () {
   const MODE_LABELS = {
-    instant: '인스턴트', builder: '내 방식', schedule: '스케줄팀',
-    overtime: '야근팀', upgrade: '자동개발', skill: '스킬',
+    builder: '내 방식', schedule: '스케줄팀',
+    upgrade: '자동개발', skill: '스킬',
     discussion: '토론', foresight: '포사이트', persona: '페르소나',
     secretary: '비서', law: '법령',
   };
@@ -611,8 +611,8 @@
 
   /* Public API for mode JS files to signal running state.
      Usage from any mode JS:
-       window.chatbotSignal('overtime', true);   // started → button glows
-       window.chatbotSignal('overtime', false);  // finished → glow stops
+       window.chatbotSignal('upgrade', true);   // started → button glows
+       window.chatbotSignal('upgrade', false);  // finished → glow stops
      The optional `status` parameter is accepted for forward compatibility
      but currently ignored (we only toggle a CSS class). */
   window.chatbotSignal = function (mode, running, _status) {

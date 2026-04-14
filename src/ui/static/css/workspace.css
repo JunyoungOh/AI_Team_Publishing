@@ -75,7 +75,7 @@
   color: var(--text, var(--cv-text));
 }
 
-/* 야근팀 모드 탭 */
+/* 자동개발 모드 탭 (역사적 ot- prefix — mode-upgrade.js와 공유) */
 .ot-tab-switcher {
   display: flex; gap: 0; margin-bottom: 16px;
 }

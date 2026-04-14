@@ -11,8 +11,8 @@ from pydantic import BaseModel
 
 from src.config.settings import get_settings
 from src.dandelion.schemas import Imagination
-from src.overtime.runner import _get_rate_limit_wait
 from src.utils.bridge_factory import get_bridge
+from src.utils.cli_session import _get_rate_limit_wait
 
 logger = logging.getLogger(__name__)
 

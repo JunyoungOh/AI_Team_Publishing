@@ -339,8 +339,8 @@ def _extract_team_json(text: str) -> dict[str, Any] | None:
 
 # ── Strategy Builder (분석 전략 프리셋 설계) ──
 
-# 타입별 전략 유형: general | schedule | overtime
-VALID_STRATEGY_TYPES = {"general", "schedule", "overtime"}
+# 타입별 전략 유형: general | schedule
+VALID_STRATEGY_TYPES = {"general", "schedule"}
 
 _STRATEGY_BASE_PROMPT = """\
 당신은 **분석 방식 설계 전문가**입니다.
@@ -436,17 +436,6 @@ _CLARIFY_SCHEDULE = """\
 - "결과물은 어떤 형식으로 받고 싶나요? (간략 요약 vs 상세 보고서)"\
 """
 
-_CLARIFY_OVERTIME = """\
-이 방식은 **목표 달성까지 반복 심화**하는 야근팀 작업용입니다.
-한 번에 끝나지 않는 심층 리서치, 대규모 분석, 품질 목표 달성이 목적입니다.
-
-질문 예시:
-- "최종적으로 달성하고 싶은 분석 결과의 수준은? (데이터 포인트 수, 정보 깊이 등)"
-- "분석 범위를 점진적으로 확장할 건가요, 하나의 주제를 깊이 파고들 건가요?"
-- "반복 실행 시 이전 결과에서 부족한 부분을 자동으로 보강하면 좋겠나요?"
-- "중간 결과를 누적할 건가요, 매 반복마다 전체를 새로 작성할 건가요?"\
-"""
-
 _DESIGN_GENERAL = """\
 각 관점은 범용 분석 축으로 설계하세요.\
 """
@@ -468,32 +457,14 @@ _DESIGN_SCHEDULE = """\
 방식 카드(strategy_json)를 출력한 뒤에는 "이 방식을 저장한 다음, 스케줄팀 탭에서 실행 시간을 설정하시면 됩니다." 정도로만 안내하세요.\
 """
 
-_DESIGN_OVERTIME = """\
-각 관점은 **심층 반복 탐색에 적합하게** 설계하세요:
-- 관점별 instruction에 "이전 iteration에서 수집한 데이터를 기반으로 추가 탐색" 지시를 포함
-- 한 번의 실행으로 완성되지 않아도 되며, 반복할수록 깊어지는 구조로 설계
-- 품질 기준(예: 데이터 포인트 N개 이상, 출처 M개 이상)을 instruction에 명시하면 좋습니다
-
-**중요 - 역할 경계**:
-당신의 역할은 **방식(관점) 설계**에 한정됩니다. 다음 사항은 **절대 묻거나 언급하지 마세요**:
-- 최대 반복 횟수 (예: "몇 번 반복할까요?")
-- 실행 시작/중단 시점
-- 야근팀 실행 버튼 / 실행 등록 절차
-
-반복 횟수와 실행은 사용자가 **별도의 '야근팀' 탭**에서 이 방식을 선택한 뒤 직접 설정합니다.
-방식 카드(strategy_json)를 출력한 뒤에는 "이 방식을 저장한 다음, 야근팀 탭에서 반복 횟수와 목표를 설정하시면 됩니다." 정도로만 안내하세요.\
-"""
-
 _CLARIFY_MAP = {
     "general": _CLARIFY_GENERAL,
     "schedule": _CLARIFY_SCHEDULE,
-    "overtime": _CLARIFY_OVERTIME,
 }
 
 _DESIGN_MAP = {
     "general": _DESIGN_GENERAL,
     "schedule": _DESIGN_SCHEDULE,
-    "overtime": _DESIGN_OVERTIME,
 }
 
 

@@ -24,7 +24,7 @@ var CardBuilder = (function () {
   var _useStrategyMode = true; // 싱글 세션 모드에서는 항상 전략 설계
   var _pendingEditMode = false; // 수정 요청 대기 플래그
   var _initialStrategyBtnAdded = false; // 초기 저장된 방식 버튼 추가 여부
-  var _strategyType = 'general'; // 현재 선택된 전략 타입: general | schedule | overtime
+  var _strategyType = 'general'; // 현재 선택된 전략 타입: general | schedule
   var _typeSelected = false; // 타입 선택 완료 여부
 
   /* ── WebSocket ── */
@@ -460,7 +460,6 @@ var CardBuilder = (function () {
   var _TYPE_INFO = {
     general: { icon: '🔍', label: 'General', desc: '범용 분석 방식' },
     schedule: { icon: '📅', label: '스케줄', desc: '정기 반복 모니터링용' },
-    overtime: { icon: '🌙', label: '야근', desc: '심층 반복 탐색용' },
   };
 
   function showTypeSelector() {
@@ -479,7 +478,7 @@ var CardBuilder = (function () {
     var grid = document.createElement('div');
     grid.className = 'cb-type-grid';
 
-    var types = ['general', 'schedule', 'overtime'];
+    var types = ['general', 'schedule'];
     for (var i = 0; i < types.length; i++) {
       (function (t) {
         var info = _TYPE_INFO[t];
@@ -545,7 +544,6 @@ var CardBuilder = (function () {
       );
       _chatPanel.setInputPlaceholder(
         type === 'schedule' ? '정기 모니터링할 내용을 알려주세요...' :
-        type === 'overtime' ? '심층 분석할 내용을 알려주세요...' :
         '분석 방식을 설계해보세요...'
       );
     }
@@ -553,7 +551,7 @@ var CardBuilder = (function () {
 
   /**
    * 외부에서 특정 타입으로 빌더를 시작할 때 사용.
-   * 스케줄팀/야근팀에서 "새로 만들기" 시 호출.
+   * 스케줄팀에서 "새로 만들기" 시 호출.
    */
   function startWithType(type) {
     // builder 모드로 전환 (create 서브탭 강제)

@@ -1,7 +1,7 @@
 /* workspace-panel.js — 모드별 input 파일 목록 + 선택 UI
  *
  * Usage:
- *   var panel = WorkspacePanel.create(containerEl, 'instant');
+ *   var panel = WorkspacePanel.create(containerEl, 'builder');
  *   var selected = panel.getSelectedFiles(); // ["data.csv"]
  *   panel.destroy(); // 모드 전환 시 DOM 정리
  */

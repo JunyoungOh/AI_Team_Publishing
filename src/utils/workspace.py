@@ -10,7 +10,7 @@ from pathlib import Path
 
 _DEFAULT_BASE = Path("data/workspace")
 
-VALID_MODES = {"instant", "builder", "overtime", "skill"}
+VALID_MODES = {"builder", "overtime", "skill"}
 
 _TEXT_EXTENSIONS: set[str] = {
     ".txt", ".md", ".csv", ".json", ".xml", ".yaml", ".yml",
