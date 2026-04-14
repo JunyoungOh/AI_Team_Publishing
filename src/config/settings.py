@@ -203,6 +203,13 @@ class Settings(BaseSettings):
     kosis_api_key: str = ""
     ecos_api_key: str = ""
 
+    # Korean Law (law.go.kr) — Open API 인증키(OC)
+    law_oc: str = ""
+    law_cache_ttl_search: int = 3600      # 검색 결과 1시간
+    law_cache_ttl_full: int = 86400       # 조문 원문 24시간
+    law_session_ttl_minutes: int = 30     # WS 세션 비활성 타임아웃
+    law_request_timeout: int = 20         # law.go.kr HTTP 타임아웃
+
     # Optional: LangSmith
     langchain_tracing_v2: bool = False
     langchain_api_key: str = ""

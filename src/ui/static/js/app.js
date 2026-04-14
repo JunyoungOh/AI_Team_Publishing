@@ -286,6 +286,7 @@ const Auth = {
         {id:'foresight',label:'Foresight',icon:'📡'},
         {id:'engineering',label:'Engineering',icon:'🛠️'},
         {id:'agent',label:'Agent',icon:'🎮'},
+        {id:'law',label:'Law',icon:'⚖️'},
       ];
       const currentModes = u.visible_modes; // null = all, or array
       ALL_MODES.forEach(m => {
@@ -435,7 +436,7 @@ const Auth = {
     if (hash === 'company') hash = 'instant'; // backward compat
     const vm = Auth.user && Auth.user.visible_modes;
     const canAccess = (mode) => !vm || vm.includes(mode);
-    const validModes = ['instant','builder','discussion','foresight','persona','secretary'];
+    const validModes = ['instant','builder','discussion','foresight','persona','secretary','law'];
     if (hash && validModes.includes(hash) && canAccess(hash)) {
       mm.selectMode(hash);
     } else {
@@ -483,7 +484,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (hash === 'company') hash = 'instant'; // backward compat
     const vm = Auth.user && Auth.user.visible_modes;
     const canAccess = (mode) => !vm || vm.includes(mode);
-    const validModes = ['instant','builder','discussion','foresight','persona','secretary'];
+    const validModes = ['instant','builder','discussion','foresight','persona','secretary','law'];
     if (hash && validModes.includes(hash) && canAccess(hash)) {
       mm.selectMode(hash);
     } else {

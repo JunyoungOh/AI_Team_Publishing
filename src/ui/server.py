@@ -9,6 +9,7 @@ Endpoints:
   WS   /ws/datalab    → AI DataLab mode (data analysis with Zero-Retention)
   WS   /ws/foresight  → AI Foresight mode (trend analysis)
   WS   /ws/dandelion  → Dandelion Foresight mode (multi-agent imagination)
+  WS   /ws/law        → AI Law mode (law.go.kr backed citation assistant)
   POST /api/auth/*    → Login, register, logout, admin
   GET  /api/eng/download/{session_id}   → Download Engineering project zip
   POST /api/eng/upload/{session_id}     → Upload file to Engineering session
@@ -43,6 +44,7 @@ from src.ui.routes.datalab import router as datalab_router
 from src.ui.routes.foresight import router as foresight_router
 from src.ui.routes.discussion import router as discussion_router
 from src.ui.routes.workspace import router as workspace_router
+from src.ui.routes.law import router as law_router
 
 app = FastAPI(title="Enterprise Agent Simulation")
 
@@ -67,6 +69,7 @@ app.include_router(datalab_router)
 app.include_router(foresight_router)
 app.include_router(discussion_router)
 app.include_router(workspace_router)
+app.include_router(law_router)
 
 
 # ── Claude Code Usage API ─────────────────────────

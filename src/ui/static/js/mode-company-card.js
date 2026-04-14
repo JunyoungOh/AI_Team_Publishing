@@ -30,7 +30,8 @@ var CardView = (function () {
     discussion: 'AI 토론',
     foresight: 'Foresight',
     persona: '페르소나 워크숍',
-    secretary: 'AI 비서'
+    secretary: 'AI 비서',
+    law: 'AI 법령'
   };
 
   /* ── WorkspacePanel instance ── */
@@ -420,6 +421,11 @@ var CardView = (function () {
           SkillManager.mountInShell(container); _modeBooted[mode] = true;
         }
         break;
+      case 'law':
+        if (typeof LawManager !== 'undefined' && LawManager.mountInShell) {
+          LawManager.mountInShell(container); _modeBooted[mode] = true;
+        }
+        break;
     }
   }
 
@@ -435,7 +441,8 @@ var CardView = (function () {
       secretary: ['AI ', 'Secretary'],
       schedule: ['', '스케줄팀'],
       overtime: ['', '야근팀'],
-      skill: ['내 ', '스킬']
+      skill: ['내 ', '스킬'],
+      law: ['AI ', '법령']
     };
     var parts = accentMap[mode] || accentMap.instant;
     title.textContent = '';
