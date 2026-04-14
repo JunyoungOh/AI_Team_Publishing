@@ -575,12 +575,17 @@ class LawEngine:
         return _ARTICLE_REF_RE.sub(_replace, text)
 
     async def _flush_pending_citations(self) -> None:
+        """Drain the per-turn citation queue.
+
+        The frontend used to render these as a dedicated sidebar, but that
+        UI was removed in favour of inline [인용] blockquotes. We still
+        collect citations inside the tool executors because
+        ``verified_articles`` (used by the verbatim guard) is populated on
+        the same path — here we just drop the queued card data.
+        """
         pending = self._ctx["pending_citations"]
-        if not pending:
-            return
-        for card in pending:
-            await self._send({"type": "law_citation", "data": card})
-        pending.clear()
+        if pending:
+            pending.clear()
 
     # -- WS + helpers ---------------------------------------------
 

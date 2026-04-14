@@ -7,9 +7,6 @@ class LawManager {
   constructor() {
     this.ws = null;
     this._chat = null;
-    this._citations = null;
-    this._citationsCount = null;
-    this._citationsBody = null;
     this._input = null;
     this._sendBtn = null;
     this._statusEl = null;
@@ -20,7 +17,6 @@ class LawManager {
     this._reconnectAttempts = 0;
     this._reconnectTimer = null;
     this._toolStatusEl = null;
-    this._citationKeys = new Set();
   }
 
   static mountInShell(container) {
@@ -312,70 +308,6 @@ class LawManager {
       .law-tool-label {
         color: var(--brand); font-size: 11px; font-weight: 600;
       }
-      .law-citations {
-        width: 360px; flex-shrink: 0; border-left: 1px solid var(--border);
-        background: var(--overlay-1, var(--surface));
-        display: flex; flex-direction: column; min-height: 0;
-        transition: width 0.25s ease;
-      }
-      .law-citations.collapsed { width: 36px; }
-      .law-citations-head {
-        display: flex; align-items: center; gap: 8px;
-        padding: 10px 12px; border-bottom: 1px solid var(--border);
-        font-size: 0.82em; font-weight: 600; color: var(--text);
-        cursor: pointer; user-select: none;
-      }
-      .law-citations.collapsed .law-citations-head {
-        justify-content: center; padding: 10px 4px;
-      }
-      .law-citations.collapsed .law-citations-head .law-citations-label,
-      .law-citations.collapsed .law-citations-body { display: none; }
-      .law-citations-head .law-citations-count {
-        background: var(--brand); color: #000; font-size: 10px;
-        padding: 1px 7px; border-radius: 9px; font-weight: 700;
-      }
-      .law-citations-body {
-        flex: 1; min-height: 0; overflow-y: auto;
-        padding: 12px; display: flex; flex-direction: column; gap: 10px;
-        scrollbar-width: thin;
-      }
-      .law-citations-body::-webkit-scrollbar { width: 5px; }
-      .law-citations-body::-webkit-scrollbar-thumb { background: var(--overlay-3); border-radius: 3px; }
-      .law-citation-card {
-        background: var(--surface); border: 1px solid var(--border);
-        border-radius: 10px; padding: 10px 12px; font-size: 0.82em;
-      }
-      .law-citation-card .law-citation-title {
-        font-weight: 700; color: var(--text); margin-bottom: 2px;
-        display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-      }
-      .law-citation-card .law-citation-meta {
-        color: var(--dim); font-size: 10px; margin-bottom: 6px;
-      }
-      .law-citation-card .law-citation-text {
-        color: var(--text); white-space: pre-wrap; line-height: 1.55;
-        background: var(--overlay-2); padding: 8px 10px; border-radius: 6px;
-        max-height: 220px; overflow-y: auto;
-        font-family: ui-serif, 'Noto Serif KR', serif;
-      }
-      .law-citation-card .law-citation-actions {
-        display: flex; gap: 6px; margin-top: 8px;
-      }
-      .law-citation-card .law-citation-actions a,
-      .law-citation-card .law-citation-actions button {
-        font-size: 11px; padding: 4px 9px; border-radius: 6px;
-        border: 1px solid var(--border); background: transparent;
-        color: var(--text); cursor: pointer; text-decoration: none;
-        font-family: inherit;
-      }
-      .law-citation-card .law-citation-actions a:hover,
-      .law-citation-card .law-citation-actions button:hover {
-        background: var(--overlay-2);
-      }
-      .law-citations-empty {
-        color: var(--dim); font-size: 0.78em; text-align: center;
-        padding: 24px 10px; line-height: 1.6;
-      }
       .law-input-bar {
         display: flex; align-items: flex-end; gap: 8px;
         padding: 12px 16px; border-top: 1px solid var(--border);
@@ -486,7 +418,8 @@ class LawManager {
 
     shell.appendChild(toolbar);
 
-    /* Body: chat | citations */
+    /* Body: chat only — cited articles are now shown inline via the
+       .law-cite-block blockquote styling inside the AI message. */
     const body = document.createElement('div');
     body.className = 'law-body';
 
@@ -494,36 +427,6 @@ class LawManager {
     chat.className = 'law-chat';
     body.appendChild(chat);
     this._chat = chat;
-
-    const citations = document.createElement('div');
-    citations.className = 'law-citations';
-    const citHead = document.createElement('div');
-    citHead.className = 'law-citations-head';
-    const citLabel = document.createElement('span');
-    citLabel.className = 'law-citations-label';
-    citLabel.textContent = '📜 인용된 조문';
-    const citCount = document.createElement('span');
-    citCount.className = 'law-citations-count';
-    citCount.textContent = '0';
-    citHead.appendChild(citLabel);
-    citHead.appendChild(citCount);
-    citHead.addEventListener('click', () => {
-      citations.classList.toggle('collapsed');
-    });
-    citations.appendChild(citHead);
-
-    const citBody = document.createElement('div');
-    citBody.className = 'law-citations-body';
-    const empty = document.createElement('div');
-    empty.className = 'law-citations-empty';
-    empty.textContent = '아직 조회된 조문이 없습니다. 질문을 입력하면 관련 조문 원문이 여기에 표시됩니다.';
-    citBody.appendChild(empty);
-    citations.appendChild(citBody);
-
-    body.appendChild(citations);
-    this._citations = citations;
-    this._citationsCount = citCount;
-    this._citationsBody = citBody;
 
     shell.appendChild(body);
 
@@ -630,7 +533,8 @@ class LawManager {
         this._handleToolStatus(msg.data || {});
         break;
       case 'law_citation':
-        this._handleCitation(msg.data || {});
+        // Sidebar removed — inline [인용] blocks cover this now. The
+        // backend still pushes these messages; we silently drop them.
         break;
       case 'law_error':
         this._addSystemMsg('⚠️ ' + (msg.data?.message || '오류'));
@@ -687,64 +591,6 @@ class LawManager {
       this._toolStatusEl.textContent = data.status || '법령 조회 중…';
     }
     this._chat.scrollTop = this._chat.scrollHeight;
-  }
-
-  _handleCitation(data) {
-    const key = `${data.mst || ''}::${data.jo_code || data.article_no || ''}`;
-    if (this._citationKeys.has(key)) return;
-    this._citationKeys.add(key);
-
-    const empty = this._citationsBody.querySelector('.law-citations-empty');
-    if (empty) empty.remove();
-
-    const card = document.createElement('div');
-    card.className = 'law-citation-card';
-
-    const t = document.createElement('div');
-    t.className = 'law-citation-title';
-    const lawName = document.createElement('span');
-    lawName.textContent = data.law_name || '(법령)';
-    t.appendChild(lawName);
-    const art = document.createElement('span');
-    art.style.cssText = 'color:var(--brand);font-size:0.88em;';
-    art.textContent = data.article_no || '';
-    t.appendChild(art);
-    card.appendChild(t);
-
-    const meta = document.createElement('div');
-    meta.className = 'law-citation-meta';
-    meta.textContent = `MST=${data.mst || '?'} · 원문 verbatim`;
-    card.appendChild(meta);
-
-    const text = document.createElement('div');
-    text.className = 'law-citation-text';
-    text.textContent = data.text || '(원문 없음)';
-    card.appendChild(text);
-
-    const actions = document.createElement('div');
-    actions.className = 'law-citation-actions';
-    if (data.source_url) {
-      const link = document.createElement('a');
-      link.href = data.source_url;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      link.textContent = '↗ law.go.kr에서 원본 보기';
-      actions.appendChild(link);
-    }
-    const copyBtn = document.createElement('button');
-    copyBtn.textContent = '복사';
-    copyBtn.addEventListener('click', () => {
-      try {
-        navigator.clipboard.writeText(data.text || '');
-        copyBtn.textContent = '복사됨';
-        setTimeout(() => { copyBtn.textContent = '복사'; }, 1500);
-      } catch {}
-    });
-    actions.appendChild(copyBtn);
-    card.appendChild(actions);
-
-    this._citationsBody.appendChild(card);
-    this._citationsCount.textContent = String(this._citationKeys.size);
   }
 
   _sendMessage() {
