@@ -673,48 +673,96 @@ class DiscussionManager {
     var area = document.getElementById('disc-presets-area');
     if (!area) return;
     while (area.firstChild) area.removeChild(area.firstChild);
-    var all = this._getAllPresets();
-    if (all.length === 0) return;
     var self = this;
 
-    var label = document.createElement('label');
-    label.className = 'disc-label';
-    label.textContent = '\uBE60\uB978 \uC2DC\uC791';
-    area.appendChild(label);
+    var builtin = DiscussionManager.BUILTIN_PRESETS || [];
+    var user = this._presets || [];
 
-    var presetsRow = document.createElement('div');
-    presetsRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;';
-    all.forEach(function(preset) {
-      var card = document.createElement('button');
-      card.className = 'disc-mode-btn';
-      card.style.cssText = 'text-align:left;padding:8px 12px;';
-      var pCount = (preset.participants || []).length;
-      var styleLabel = preset.style === 'debate' ? '\uCC2C\uBC18' : preset.style === 'brainstorm' ? '\uBE0C\uB808\uC778\uC2A4\uD1A0\uBC0D' : '\uC790\uC720';
+    /* ── 빠른 시작 (빌트인) ── */
+    if (builtin.length > 0) {
+      var qsLabel = document.createElement('label');
+      qsLabel.className = 'disc-label';
+      qsLabel.textContent = '\uBE60\uB978 \uC2DC\uC791';
+      area.appendChild(qsLabel);
 
-      var nameDiv = document.createElement('div');
-      nameDiv.style.cssText = 'font-size:12px;color:var(--cv-text);margin-bottom:2px;';
-      nameDiv.textContent = preset.name;
-      card.appendChild(nameDiv);
+      var qsRow = document.createElement('div');
+      qsRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;';
+      builtin.forEach(function(preset) {
+        qsRow.appendChild(self._buildPresetCard(preset, false));
+      });
+      area.appendChild(qsRow);
+    }
 
-      var metaDiv = document.createElement('div');
-      metaDiv.style.cssText = 'font-size:10px;color:var(--cv-dim);';
-      metaDiv.textContent = styleLabel + ' \u00B7 ' + pCount + '\uC778 \u00B7 ' + (preset.time_limit_min || 15) + '\uBD84';
-      card.appendChild(metaDiv);
+    /* ── 내 프리셋 (사용자 저장) ── */
+    var myLabel = document.createElement('label');
+    myLabel.className = 'disc-label';
+    myLabel.textContent = '\uB0B4 \uD504\uB9AC\uC14B';
+    area.appendChild(myLabel);
 
-      card.addEventListener('click', function() { self._startFromPreset(preset); });
-      presetsRow.appendChild(card);
-    });
-    area.appendChild(presetsRow);
+    if (user.length === 0) {
+      var emptyMsg = document.createElement('div');
+      emptyMsg.style.cssText = 'font-size:11px;color:var(--cv-dim);padding:4px 2px 0;';
+      emptyMsg.textContent = '\uC800\uC7A5\uB41C \uD504\uB9AC\uC14B\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uC6B0\uCE21 "\uD504\uB9AC\uC14B \uC800\uC7A5" \uBC84\uD2BC\uC73C\uB85C \uD604\uC7AC \uC124\uC815\uC744 \uC800\uC7A5\uD558\uC138\uC694.';
+      area.appendChild(emptyMsg);
+    } else {
+      var myRow = document.createElement('div');
+      myRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;';
+      user.forEach(function(preset) {
+        myRow.appendChild(self._buildPresetCard(preset, true));
+      });
+      area.appendChild(myRow);
+    }
   }
 
-  _startFromPreset(preset) {
+  _buildPresetCard(preset, deletable) {
+    var self = this;
+    var wrapper = document.createElement('div');
+    wrapper.style.cssText = 'position:relative;display:inline-block;';
+
+    var card = document.createElement('button');
+    card.className = 'disc-mode-btn';
+    card.style.cssText = 'text-align:left;padding:8px 12px;' + (deletable ? 'padding-right:28px;' : '');
+    var pCount = (preset.participants || []).length;
+    var styleLabel = preset.style === 'debate' ? '\uCC2C\uBC18' : preset.style === 'brainstorm' ? '\uBE0C\uB808\uC778\uC2A4\uD1A0\uBC0D' : '\uC790\uC720';
+
+    var nameDiv = document.createElement('div');
+    nameDiv.style.cssText = 'font-size:12px;color:var(--cv-text);margin-bottom:2px;';
+    nameDiv.textContent = preset.name;
+    card.appendChild(nameDiv);
+
+    var metaDiv = document.createElement('div');
+    metaDiv.style.cssText = 'font-size:10px;color:var(--cv-dim);';
+    metaDiv.textContent = styleLabel + ' \u00B7 ' + pCount + '\uC778 \u00B7 ' + (preset.time_limit_min || 15) + '\uBD84';
+    card.appendChild(metaDiv);
+
+    card.addEventListener('click', function() { self._loadPresetIntoForm(preset); });
+    wrapper.appendChild(card);
+
+    if (deletable) {
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.textContent = '\u00D7';
+      del.title = '\uC0AD\uC81C';
+      del.style.cssText = 'position:absolute;top:4px;right:4px;width:20px;height:20px;border:none;background:transparent;color:var(--cv-dim);cursor:pointer;font-size:15px;line-height:1;padding:0;border-radius:3px;';
+      del.addEventListener('mouseenter', function() { del.style.background = 'var(--cv-bg)'; del.style.color = 'var(--cv-text)'; });
+      del.addEventListener('mouseleave', function() { del.style.background = 'transparent'; del.style.color = 'var(--cv-dim)'; });
+      del.addEventListener('click', function(ev) {
+        ev.stopPropagation();
+        self._deletePreset(preset.id);
+      });
+      wrapper.appendChild(del);
+    }
+
+    return wrapper;
+  }
+
+  _loadPresetIntoForm(preset) {
     var topicEl = document.getElementById('disc-topic');
     if (topicEl) topicEl.value = preset.topic || '';
     var timeEl = document.getElementById('disc-time');
     if (timeEl) timeEl.value = preset.time_limit_min || 15;
     this._discMode = preset.mode || 'basic';
 
-    /* Set style button */
     var styleBtns = this._container.querySelectorAll('.disc-style-btn');
     styleBtns.forEach(function(b) {
       b.classList.toggle('active', b.dataset.style === (preset.style || 'free'));
@@ -724,15 +772,19 @@ class DiscussionManager {
       return { name: p.name || 'Agent', persona: p.persona || '\uC77C\uBC18 \uCC38\uAC00\uC790' };
     });
 
-    /* Render participants from preset */
     var cards = document.getElementById('disc-participant-cards');
     var self = this;
     if (cards) {
       while (cards.firstChild) cards.removeChild(cards.firstChild);
       this._step3Participants.forEach(function(p) { self._addParticipantCard(p); });
     }
+  }
 
-    this._startDiscussion();
+  _deletePreset(id) {
+    if (!confirm('\uC774 \uD504\uB9AC\uC14B\uC744 \uC0AD\uC81C\uD560\uAE4C\uC694?')) return;
+    this._presets = (this._presets || []).filter(function(p) { return p.id !== id; });
+    this._savePresets();
+    this._renderPresetsInSetup();
   }
 
   _saveCurrentAsPreset() {
