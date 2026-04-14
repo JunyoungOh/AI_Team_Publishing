@@ -10,6 +10,7 @@ Endpoints:
   WS   /ws/foresight  → AI Foresight mode (trend analysis)
   WS   /ws/dandelion  → Dandelion Foresight mode (multi-agent imagination)
   WS   /ws/law        → AI Law mode (law.go.kr backed citation assistant)
+  WS   /ws/chatbot    → Onboarding/guide chatbot (feature recommender)
   POST /api/auth/*    → Login, register, logout, admin
   GET  /api/eng/download/{session_id}   → Download Engineering project zip
   POST /api/eng/upload/{session_id}     → Upload file to Engineering session
@@ -37,6 +38,7 @@ from src.discussion.session import DiscussionSession
 from src.secretary.history_store import HistoryStore
 from src.secretary.mode_injector import get_injected_task, get_injector_for_task
 from src.secretary.session import SecretarySession
+from src.chatbot.session import ChatbotSession
 from src.datalab.security import purge_orphan_sessions
 from src.ui.sim_runner import SimSession
 from src.ui.routes.engineering import router as eng_router
@@ -499,6 +501,32 @@ async def secretary_endpoint(ws: WebSocket):
     user_id = user["sub"] if user else ""
 
     session = SecretarySession(ws, user_id=user_id)
+    try:
+        await session.run()
+    except WebSocketDisconnect:
+        session.cancel()
+    except Exception as e:
+        try:
+            await ws.send_json({"type": "error", "data": {"message": str(e)}})
+        except Exception:
+            pass
+        session.cancel()
+
+
+@app.websocket("/ws/chatbot")
+async def chatbot_endpoint(ws: WebSocket):
+    """WebSocket endpoint for the onboarding/guide chatbot."""
+    await ws.accept()
+
+    user = _verify_ws_token(ws) if _membership_enabled() else None
+    if _membership_enabled() and not user:
+        await ws.send_json({"type": "error", "data": {"message": "인증이 필요합니다."}})
+        await ws.close(code=4001)
+        return
+
+    user_id = user["sub"] if user else ""
+
+    session = ChatbotSession(ws, user_id=user_id)
     try:
         await session.run()
     except WebSocketDisconnect:

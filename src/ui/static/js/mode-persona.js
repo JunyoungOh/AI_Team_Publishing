@@ -1,5 +1,12 @@
 'use strict';
 
+/* Sidebar "running" indicator signal — see mode-chatbot.js for receiver. */
+function _personaSignalRunning(on) {
+  try {
+    if (window.chatbotSignal) window.chatbotSignal('persona', on);
+  } catch (_) { /* noop */ }
+}
+
 class PersonaManager {
   constructor() {
     this._view = 'gallery'; // 'gallery' | 'create' | 'interview' | 'preview'
@@ -745,6 +752,7 @@ class PersonaManager {
 
     ws.onopen = () => {
       statusBar.textContent = '\uc5f0\uacb0\ub428 \u2014 \uc778\ud130\ubdf0\ub97c \uc2dc\uc791\ud569\ub2c8\ub2e4...';
+      _personaSignalRunning(true);
       ws.send(JSON.stringify({
         type: 'interview_start',
         data: {
@@ -810,6 +818,7 @@ class PersonaManager {
       textarea.disabled = true;
       sendBtn.disabled = true;
       finishBtn.disabled = true;
+      _personaSignalRunning(false);
       if (statusBar.textContent !== '\uc644\ub8cc!') {
         statusBar.textContent = '\uc5f0\uacb0 \uc885\ub8cc';
       }

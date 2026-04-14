@@ -1,0 +1,437 @@
+/* ══════════════════════════════════════════════════
+   §  CHATBOT WIDGET STYLES
+   ══════════════════════════════════════════════════ */
+
+/* ── Collapsed widget in sidebar (above .cs-brand) ── */
+.chatbot-collapsed {
+  position: relative;
+  width: 100%;
+  margin-bottom: 4px;
+}
+.chatbot-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--cv-border);
+  border-radius: 10px;
+  background: linear-gradient(180deg,
+    color-mix(in oklab, var(--cv-accent) 8%, transparent),
+    color-mix(in oklab, var(--cv-accent) 3%, transparent));
+  color: var(--cv-text);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.chatbot-btn:hover {
+  border-color: var(--cv-accent);
+  box-shadow: 0 2px 10px color-mix(in oklab, var(--cv-accent) 22%, transparent);
+}
+.chatbot-btn:active { transform: scale(0.98); }
+
+.chatbot-btn-icon {
+  width: 26px; height: 26px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 7px;
+  background: color-mix(in oklab, var(--cv-accent) 18%, transparent);
+  color: var(--cv-accent);
+  flex-shrink: 0;
+}
+.chatbot-btn-label {
+  font-size: 0.78em; font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--cv-text);
+  overflow: hidden;
+}
+.chatbot-collapsed.is-expanded .chatbot-btn {
+  border-color: var(--cv-accent);
+  background: color-mix(in oklab, var(--cv-accent) 16%, transparent);
+}
+
+/* ── Sidebar "mode is running" indicator ──
+   Toggled by window.chatbotSignal(slug, running). Applies a subtle glow
+   to the .cs-item button and a small pulsing dot in the top-right corner.
+   Designed to coexist with .cs-item.active (which styles the currently
+   VIEWED mode) — running state is about "backend executing", not "viewing".
+   Both classes can apply simultaneously. */
+.cs-item.cs-item-running {
+  position: relative;
+  background: color-mix(in oklab, var(--cv-accent) 10%, transparent);
+  animation: cs-item-running-glow 2.2s infinite ease-in-out;
+}
+
+.cs-item.cs-item-running .cs-label {
+  color: var(--cv-accent);
+  font-weight: 600;
+}
+
+/* Pulsing outer glow via box-shadow keyframes */
+@keyframes cs-item-running-glow {
+  0%, 100% {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklab, var(--cv-accent) 30%, transparent),
+      0 0 8px color-mix(in oklab, var(--cv-accent) 18%, transparent);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklab, var(--cv-accent) 55%, transparent),
+      0 0 14px color-mix(in oklab, var(--cv-accent) 38%, transparent);
+  }
+}
+
+/* Top-right corner pulse dot — clear "something is happening" signal */
+.cs-item.cs-item-running::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cv-accent);
+  box-shadow: 0 0 6px var(--cv-accent),
+              0 0 2px color-mix(in oklab, var(--cv-accent) 80%, #fff);
+  animation: cs-item-running-dot 1.4s infinite ease-in-out;
+  pointer-events: none;
+}
+
+@keyframes cs-item-running-dot {
+  0%, 100% { opacity: 0.42; transform: scale(0.85); }
+  50%      { opacity: 1;    transform: scale(1.15); }
+}
+
+/* When a mode is BOTH active (viewed) AND running, strengthen the glow
+   slightly so the dual-state is clearly distinguishable from plain active. */
+.cs-item.cs-item-running.active {
+  background: color-mix(in oklab, var(--cv-accent) 22%, transparent);
+}
+
+/* ── Expanded floating panel ── */
+.chatbot-panel {
+  position: fixed;
+  left: 148px;    /* sidebar ~136px + 12px gap */
+  bottom: 16px;
+  width: 480px;
+  max-width: calc(100vw - 180px);
+  height: 640px;
+  max-height: calc(100vh - 40px);
+  background: var(--cv-bg, #0f0f12);
+  border: 1px solid var(--cv-border);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.55),
+              0 2px 8px rgba(0,0,0,0.3);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 200;
+  opacity: 0;
+  transform: translateY(12px) scale(0.98);
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.2s ease;
+}
+.chatbot-panel.is-open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+/* ── Panel header ── */
+.chatbot-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--cv-border);
+  background: color-mix(in oklab, var(--cv-accent) 6%, transparent);
+}
+.chatbot-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.9em; font-weight: 600;
+  color: var(--cv-text);
+}
+.chatbot-title-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--cv-accent);
+  box-shadow: 0 0 8px var(--cv-accent);
+}
+.chatbot-status {
+  font-size: 0.75em; font-weight: 400;
+  color: var(--cv-muted);
+  margin-left: 4px;
+}
+.chatbot-close {
+  width: 28px; height: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--cv-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.chatbot-close:hover {
+  background: var(--cv-glass-hi);
+  color: var(--cv-text);
+  border-color: var(--cv-border);
+}
+
+/* ── Intro caption ── */
+.chatbot-intro {
+  padding: 10px 14px;
+  font-size: 0.78em;
+  color: var(--cv-muted);
+  border-bottom: 1px solid var(--cv-border);
+  line-height: 1.5;
+}
+
+/* ── Messages area ── */
+.chatbot-messages {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px 14px;
+  display: flex; flex-direction: column; gap: 12px;
+  background: var(--cv-bg);
+  scroll-behavior: smooth;
+}
+.chatbot-messages::-webkit-scrollbar { width: 8px; }
+.chatbot-messages::-webkit-scrollbar-track { background: transparent; }
+.chatbot-messages::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--cv-border) 70%, transparent);
+  border-radius: 4px;
+}
+
+/* Entry animation — subtle fade + rise */
+@keyframes chatbot-msg-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.chatbot-msg {
+  max-width: 88%;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 0.86em;
+  line-height: 1.6;
+  letter-spacing: 0.1px;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  animation: chatbot-msg-in 0.2s ease-out;
+}
+
+.chatbot-msg-user {
+  align-self: flex-end;
+  background: linear-gradient(135deg,
+    var(--cv-accent),
+    color-mix(in oklab, var(--cv-accent) 82%, #000));
+  color: #fff;
+  border-bottom-right-radius: 5px;
+  box-shadow: 0 1px 4px color-mix(in oklab, var(--cv-accent) 28%, transparent);
+}
+
+.chatbot-msg-ai {
+  align-self: flex-start;
+  background: linear-gradient(180deg,
+    color-mix(in oklab, var(--cv-text) 4%, transparent),
+    color-mix(in oklab, var(--cv-text) 2%, transparent));
+  color: var(--cv-text);
+  border: 1px solid color-mix(in oklab, var(--cv-border) 85%, transparent);
+  border-bottom-left-radius: 5px;
+  white-space: normal;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+}
+
+/* ── Rich markdown inside AI messages ── */
+.chatbot-msg-ai p {
+  margin: 0 0 10px;
+}
+.chatbot-msg-ai p:last-child { margin-bottom: 0; }
+
+.chatbot-msg-ai h1,
+.chatbot-msg-ai h2,
+.chatbot-msg-ai h3 {
+  margin: 14px 0 6px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: color-mix(in oklab, var(--cv-text) 96%, var(--cv-accent));
+}
+.chatbot-msg-ai h1 { font-size: 1.08em; }
+.chatbot-msg-ai h2 { font-size: 1em; }
+.chatbot-msg-ai h3 {
+  font-size: 0.94em;
+  color: color-mix(in oklab, var(--cv-text) 88%, var(--cv-accent));
+}
+.chatbot-msg-ai h1:first-child,
+.chatbot-msg-ai h2:first-child,
+.chatbot-msg-ai h3:first-child { margin-top: 0; }
+
+.chatbot-msg-ai ul,
+.chatbot-msg-ai ol {
+  margin: 6px 0 12px;
+  padding-left: 22px;
+}
+.chatbot-msg-ai ul { list-style: none; padding-left: 6px; }
+.chatbot-msg-ai ul li {
+  position: relative;
+  padding-left: 16px;
+  margin-bottom: 5px;
+}
+.chatbot-msg-ai ul li::before {
+  content: '';
+  position: absolute;
+  left: 2px; top: 0.7em;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--cv-accent);
+  opacity: 0.75;
+}
+.chatbot-msg-ai ol li {
+  margin-bottom: 5px;
+  padding-left: 4px;
+}
+.chatbot-msg-ai ol {
+  counter-reset: chatbot-ol;
+}
+
+.chatbot-msg-ai strong {
+  font-weight: 700;
+  color: color-mix(in oklab, var(--cv-text) 98%, var(--cv-accent));
+}
+.chatbot-msg-ai em {
+  font-style: italic;
+  color: color-mix(in oklab, var(--cv-text) 92%, transparent);
+}
+
+.chatbot-msg-ai code {
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.88em;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: color-mix(in oklab, var(--cv-accent) 12%, rgba(0,0,0,0.22));
+  color: color-mix(in oklab, var(--cv-text) 90%, var(--cv-accent));
+  border: 1px solid color-mix(in oklab, var(--cv-accent) 18%, transparent);
+}
+
+.chatbot-msg-ai blockquote {
+  margin: 8px 0;
+  padding: 6px 12px;
+  border-left: 3px solid color-mix(in oklab, var(--cv-accent) 55%, transparent);
+  background: color-mix(in oklab, var(--cv-accent) 5%, transparent);
+  color: var(--cv-muted);
+  border-radius: 0 8px 8px 0;
+  font-size: 0.94em;
+}
+
+.chatbot-msg-ai hr {
+  border: none;
+  height: 1px;
+  margin: 12px 0;
+  background: linear-gradient(90deg,
+    transparent,
+    color-mix(in oklab, var(--cv-border) 90%, transparent) 20%,
+    color-mix(in oklab, var(--cv-border) 90%, transparent) 80%,
+    transparent);
+}
+
+.chatbot-msg-system {
+  align-self: center;
+  background: transparent;
+  color: var(--cv-muted);
+  font-size: 0.78em;
+  font-style: italic;
+  padding: 4px 10px;
+  max-width: 100%;
+  text-align: center;
+  animation: chatbot-msg-in 0.2s ease-out;
+}
+
+/* ── Typing indicator (three bouncing dots) ── */
+.chatbot-typing {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 5px;
+  padding: 14px 16px !important;
+  min-height: 0 !important;
+}
+.chatbot-typing span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--cv-accent) 85%, transparent);
+  animation: chatbot-dot 1.3s infinite ease-in-out;
+}
+.chatbot-typing span:nth-child(2) { animation-delay: 0.15s; }
+.chatbot-typing span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes chatbot-dot {
+  0%, 70%, 100% { opacity: 0.28; transform: scale(0.8); }
+  35%           { opacity: 1;    transform: scale(1.1); }
+}
+
+/* ── Clickable mode tag chips in AI replies ── */
+.chatbot-modetag {
+  display: inline-block;
+  padding: 1px 7px;
+  margin: 0 2px;
+  border-radius: 5px;
+  background: color-mix(in oklab, var(--cv-accent) 18%, transparent);
+  color: var(--cv-accent);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.9em;
+  border: 1px solid color-mix(in oklab, var(--cv-accent) 35%, transparent);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.chatbot-modetag:hover {
+  background: var(--cv-accent);
+  color: #fff;
+}
+
+/* ── Input bar ── */
+.chatbot-inputbar {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--cv-border);
+  background: var(--cv-bg);
+}
+.chatbot-input {
+  flex: 1 1 auto;
+  resize: none;
+  padding: 8px 10px;
+  border: 1px solid var(--cv-border);
+  border-radius: 8px;
+  background: var(--cv-glass-hi, rgba(255,255,255,0.04));
+  color: var(--cv-text);
+  font-family: inherit;
+  font-size: 0.85em;
+  line-height: 1.4;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.chatbot-input:focus { border-color: var(--cv-accent); }
+.chatbot-input:disabled { opacity: 0.55; cursor: wait; }
+.chatbot-input::placeholder { color: var(--cv-dim); }
+
+.chatbot-send {
+  width: 38px; height: 38px;
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: var(--cv-accent);
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.12s ease, opacity 0.15s ease;
+}
+.chatbot-send:hover { transform: translateY(-1px); }
+.chatbot-send:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+/* ── Small screens ── */
+@media (max-width: 720px) {
+  .chatbot-panel {
+    left: 8px; right: 8px; bottom: 8px;
+    width: auto; max-width: none;
+    height: 70vh;
+  }
+}

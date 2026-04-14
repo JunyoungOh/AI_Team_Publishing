@@ -16,6 +16,14 @@ var UpgradeManager = (function () {
   var _upgradeWrap = null;   // 강화소 영구 컨테이너
   var _running = false;
 
+  /* Sidebar "running" indicator signal — see mode-chatbot.js for receiver.
+     Defensive try/catch: signaling must NEVER break the mode itself. */
+  function _signalRunning(on) {
+    try {
+      if (window.chatbotSignal) window.chatbotSignal('upgrade', on);
+    } catch (_) { /* noop */ }
+  }
+
   // 서브탭 상태
   var _subMode = 'initial';  // 'initial' | 'upgrade'
 
@@ -265,6 +273,7 @@ var UpgradeManager = (function () {
   function _startAnalyze() {
     _state = 'analyzing';
     _running = true;
+    _signalRunning(true);
     _connect();
 
     var startBtn = _upgradeWrap.querySelector('.ot-start-btn');
@@ -309,7 +318,7 @@ var UpgradeManager = (function () {
     _ws.onmessage = function (e) {
       try { _handleMessage(JSON.parse(e.data)); } catch (err) {}
     };
-    _ws.onclose = function () { _ws = null; };
+    _ws.onclose = function () { _ws = null; _signalRunning(false); };
   }
 
   function _handleMessage(msg) {
@@ -331,6 +340,7 @@ var UpgradeManager = (function () {
       _addLog('업그레이드 시작');
     } else if (type === 'upgrade_stopped') {
       _running = false;
+      _signalRunning(false);
       _addLog('중단되었습니다.');
     }
     // ── 최초개발 흐름 ──
@@ -350,11 +360,13 @@ var UpgradeManager = (function () {
       }
     } else if (type === 'overtime_stopped') {
       _running = false;
+      _signalRunning(false);
       _addDevLog('중단되었습니다', 'rate_limited');
     }
     // ── 공통 ──
     else if (type === 'error') {
       _running = false;
+      _signalRunning(false);
       alert('오류: ' + (data.message || '알 수 없는 오류'));
       if (_subMode === 'initial') {
         _devPaused = false;
@@ -386,6 +398,7 @@ var UpgradeManager = (function () {
     if (phase === 'report' && action === 'complete') {
       _state = 'done';
       _running = false;
+      _signalRunning(false);
       _showCompletion(data);
     }
   }
@@ -579,6 +592,7 @@ var UpgradeManager = (function () {
   function _startDev(answers) {
     _state = 'developing';
     _running = true;
+    _signalRunning(true);
 
     _clear(_upgradeWrap);
     _renderUpgradeProgress();
@@ -742,6 +756,7 @@ var UpgradeManager = (function () {
       _backupPath = '';
       _analysis = null;
       _running = false;
+      _signalRunning(false);
       _renderUpgradeForm();  // 강화소 wrap만 초기화
     };
     homeWrap.appendChild(homeBtn);
@@ -879,6 +894,7 @@ var UpgradeManager = (function () {
 
   function _startInitialDev(task, answers, sessionId) {
     _running = true;
+    _signalRunning(true);
     var wsFiles = _initialWsPanel ? _initialWsPanel.getSelectedFiles() : [];
 
     _clear(_initialWrap);
@@ -1062,6 +1078,7 @@ var UpgradeManager = (function () {
 
     logArea.appendChild(linkWrap);
     _running = false;
+    _signalRunning(false);
     var stopBtn = document.getElementById('dev-stop-btn');
     if (stopBtn) stopBtn.style.display = 'none';
 

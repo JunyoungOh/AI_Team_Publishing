@@ -1,5 +1,12 @@
 'use strict';
 
+/* Sidebar "running" indicator signal — see mode-chatbot.js for receiver. */
+function _discSignalRunning(on) {
+  try {
+    if (window.chatbotSignal) window.chatbotSignal('discussion', on);
+  } catch (_) { /* noop */ }
+}
+
 /* ═══════════════════════════════════════════════════
    §  DISCUSSION MANAGER — 4-split grid rewrite
    Setup → Live (4-split) → Report, all inside card shell
@@ -857,6 +864,7 @@ class DiscussionManager {
       self.ws.send(JSON.stringify({ type: 'disc_start', data: startData }));
       self._startTime = Date.now();
       self._startTimer();
+      _discSignalRunning(true);
       if (window._modeManager) window._modeManager.setModeRunning('discussion', true);
     };
 
@@ -867,6 +875,7 @@ class DiscussionManager {
 
     this.ws.onclose = function() {
       self._stopTimer();
+      _discSignalRunning(false);
       if (window._modeManager) window._modeManager.setModeRunning('discussion', false);
       /* If no content received, show error */
       var panels = self._container.querySelectorAll('.disc-panel-msg');
@@ -897,12 +906,13 @@ class DiscussionManager {
     this.ws = new WebSocket(proto + '//' + location.host + '/ws/disc?inject=' + encodeURIComponent(taskId));
 
     this.ws.onopen = function() {
+      _discSignalRunning(true);
       if (window._modeManager) window._modeManager.setModeRunning('discussion', true);
     };
     this.ws.onmessage = function(e) {
       try { self._handle(JSON.parse(e.data)); } catch (err) { console.error(err); }
     };
-    this.ws.onclose = function() { self._stopTimer(); };
+    this.ws.onclose = function() { self._stopTimer(); _discSignalRunning(false); };
   }
 
   /* ═══════════════════════════════════════════════════

@@ -1,5 +1,12 @@
 'use strict';
 
+/* Sidebar "running" indicator signal — see mode-chatbot.js for receiver. */
+function _lawSignalRunning(on) {
+  try {
+    if (window.chatbotSignal) window.chatbotSignal('law', on);
+  } catch (_) { /* noop */ }
+}
+
 /* ═══════════════════════════════════════════════════
    §  LAW MANAGER — AI 법령 tab (law.go.kr backed)
    ═══════════════════════════════════════════════════ */
@@ -555,6 +562,7 @@ class LawManager {
       this._currentAssistantEl = el;
       this._streamText = '';
       this._isStreaming = true;
+      _lawSignalRunning(true);
     }
     if (data.done) {
       if (this._currentAssistantEl && this._streamText) {
@@ -563,6 +571,7 @@ class LawManager {
       this._currentAssistantEl = null;
       this._streamText = '';
       this._isStreaming = false;
+      _lawSignalRunning(false);
       this._setInputEnabled(true);
       this._input.focus();
     } else if (data.token) {

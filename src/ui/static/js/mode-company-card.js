@@ -12,6 +12,18 @@ var CardView = (function () {
   var _running = false;      // pipeline running state
   var _runningMode = null;   // which mode started the running task
 
+  /* Sidebar "running" indicator signal — see mode-chatbot.js for receiver.
+     Reads _runningMode at call time, so callers MUST invoke this BEFORE
+     nullifying _runningMode on task end. Defensive try/catch: signaling
+     must NEVER break the mode itself. */
+  function _signalRunning(on) {
+    try {
+      if (window.chatbotSignal && _runningMode) {
+        window.chatbotSignal(_runningMode, on);
+      }
+    } catch (_) { /* noop */ }
+  }
+
   /* ── Welcome messages per mode ── */
   var WELCOME = {
     instant: '업무를 지시해주세요. CEO가 팀을 구성하고 실행합니다.',
@@ -477,6 +489,7 @@ var CardView = (function () {
     _ws.onclose = function () {
       _wsReady = false;
       _running = false;
+      _signalRunning(false);
       _runningMode = null;
       _ws = null;
       // Reconnect only if instant mode is active
@@ -528,6 +541,7 @@ var CardView = (function () {
         // Start a new pipeline run
         _running = true;
         _runningMode = _activeMode;
+        _signalRunning(true);
         CardEventHandler.reset();
         document.getElementById('card-stop-btn').style.display = '';
         _lockChatUI();
@@ -548,6 +562,7 @@ var CardView = (function () {
             setTimeout(sendStart, 100);
           } else {
             _running = false;
+            _signalRunning(false);
             document.getElementById('card-stop-btn').style.display = 'none';
             _unlockChatUI();
             if (_chatPanel) {
@@ -621,6 +636,7 @@ var CardView = (function () {
   function _startStrategyExecution(text, strategy) {
     _running = true;
     _runningMode = 'builder';
+    _signalRunning(true);
     CardEventHandler.reset();
     document.getElementById('card-stop-btn').style.display = '';
     _lockChatUI();
@@ -640,6 +656,7 @@ var CardView = (function () {
         setTimeout(sendStart, 100);
       } else {
         _running = false;
+        _signalRunning(false);
         _runningMode = null;
         document.getElementById('card-stop-btn').style.display = 'none';
         _unlockChatUI();
@@ -652,6 +669,7 @@ var CardView = (function () {
   function _startTeamExecution(text, teamId) {
     _running = true;
     _runningMode = 'builder';
+    _signalRunning(true);
     CardEventHandler.reset();
     document.getElementById('card-stop-btn').style.display = '';
     _lockChatUI();
@@ -665,6 +683,7 @@ var CardView = (function () {
         setTimeout(sendStart, 100);
       } else {
         _running = false;
+        _signalRunning(false);
         _runningMode = null;
         document.getElementById('card-stop-btn').style.display = 'none';
         _unlockChatUI();
@@ -782,6 +801,7 @@ var CardView = (function () {
       },
       onComplete: function (data) {
         _running = false;
+        _signalRunning(false);
         _runningMode = null;
         if (_chatPanel) _chatPanel.hideThinking();
         document.getElementById('card-stop-btn').style.display = 'none';
@@ -805,6 +825,7 @@ var CardView = (function () {
       },
       onError: function (msg) {
         _running = false;
+        _signalRunning(false);
         _runningMode = null;
         document.getElementById('card-stop-btn').style.display = 'none';
         document.getElementById('card-step-bar').style.display = 'none';
@@ -938,6 +959,7 @@ var CardView = (function () {
     if (_running) {
       _sendWS({ type: 'stop' });
       _running = false;
+      _signalRunning(false);
       _runningMode = null;
     }
   }

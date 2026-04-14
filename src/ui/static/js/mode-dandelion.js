@@ -7,6 +7,13 @@ let _dlThemes = [];
 let _dlSeeds = [];
 let _dlFocusedSeed = null;
 
+/* Sidebar "running" indicator signal — see mode-chatbot.js for receiver. */
+function _dlSignalRunning(on) {
+  try {
+    if (window.chatbotSignal) window.chatbotSignal('foresight', on);
+  } catch (_) { /* noop */ }
+}
+
 const _DL_BASE_R = 16;
 const _DL_SCALE = 6;
 const _DL_WEIGHT_CAP = 5;
@@ -40,7 +47,7 @@ function _initDandelion() {
     else if (msg.type === 'export_error') _dlOnError(msg.message);
   };
 
-  _dlWs.onclose = function() { _dlSetStatus('disconnected'); };
+  _dlWs.onclose = function() { _dlSetStatus('disconnected'); _dlSignalRunning(false); };
 }
 
 // ── Send query ────────────────────────────────────
@@ -59,6 +66,7 @@ function _dlSend() {
   _dlShowProgressBar();
 
   _dlWs.send(JSON.stringify({ type: 'start', query: query, files: [] }));
+  _dlSignalRunning(true);
   input.value = '';
 }
 
@@ -592,6 +600,7 @@ function _dlOnComplete() {
   _dlHideLoading();
   _dlHideProgressBar();
   _dlShowExportBtn();
+  _dlSignalRunning(false);
 }
 
 function _dlShowExportBtn() {
@@ -647,6 +656,7 @@ function _dlOnError(message) {
   _dlSetStatus('ready');
   _dlHideLoading();
   _dlHideProgressBar();
+  _dlSignalRunning(false);
   alert('오류: ' + message);
 }
 

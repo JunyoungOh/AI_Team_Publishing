@@ -12,6 +12,19 @@
 var SkillManager = (function () {
   'use strict';
 
+  /* Sidebar "running" indicator signal — uses reference counting because
+     skill has TWO WebSockets (_execWs for running a skill, _ws for
+     creating one) that can theoretically overlap. The glow only turns
+     off when BOTH have closed. See mode-chatbot.js for receiver. */
+  var _signalCount = 0;
+  function _signalRunning(on) {
+    _signalCount += on ? 1 : -1;
+    if (_signalCount < 0) _signalCount = 0;
+    try {
+      if (window.chatbotSignal) window.chatbotSignal('skill', _signalCount > 0);
+    } catch (_) { /* noop */ }
+  }
+
   var _container = null;
   var _activePanel = 'create';  // 'create' | 'list'
   var _ws = null;
@@ -386,6 +399,7 @@ var SkillManager = (function () {
 
     _execWs.onopen = function () {
       appendLog('▶ 실행 시작', 'started');
+      _signalRunning(true);
       _execWs.send(JSON.stringify({
         type: 'execute',
         data: { slug: skill.slug, user_input: input, workspace_files: wsPanel ? wsPanel.getSelectedFiles() : [] },
@@ -432,6 +446,7 @@ var SkillManager = (function () {
 
     _execWs.onclose = function () {
       appendLog('세션 종료', 'closed');
+      _signalRunning(false);
     };
   }
 
@@ -445,6 +460,7 @@ var SkillManager = (function () {
 
     _ws.onopen = function () {
       _appendSystem(logEl, '연결됨');
+      _signalRunning(true);
       var wsFiles = _createWsPanel ? _createWsPanel.getSelectedFiles() : [];
       _ws.send(JSON.stringify({
         type: 'start',
@@ -497,6 +513,7 @@ var SkillManager = (function () {
     };
     _ws.onclose = function () {
       _appendSystem(logEl, '세션 종료');
+      _signalRunning(false);
     };
   }
 

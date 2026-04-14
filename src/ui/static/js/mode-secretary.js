@@ -1,5 +1,12 @@
 'use strict';
 
+/* Sidebar "running" indicator signal — see mode-chatbot.js for receiver. */
+function _secSignalRunning(on) {
+  try {
+    if (window.chatbotSignal) window.chatbotSignal('secretary', on);
+  } catch (_) { /* noop */ }
+}
+
 /* ═══════════════════════════════════════════════════
    §  SECRETARY MANAGER — Chat-only UI in CardShell
    ═══════════════════════════════════════════════════ */
@@ -631,6 +638,7 @@ class SecretaryManager {
       this._streamRawText = '';
       this._inHtmlBlock = false;
       this._isStreaming = true;
+      _secSignalRunning(true);
       this._setInputEnabled(false);
     }
 
@@ -648,6 +656,7 @@ class SecretaryManager {
       this._streamRawText = '';
       this._inHtmlBlock = false;
       this._isStreaming = false;
+      _secSignalRunning(false);
       this._setInputEnabled(true);
       this._input.focus();
     } else if (data.token) {

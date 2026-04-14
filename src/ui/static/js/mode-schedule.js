@@ -6,6 +6,16 @@
 var ScheduleTeamManager = (function () {
   'use strict';
 
+  /* Sidebar "running" indicator signal — tracks when a SCHEDULED JOB is
+     actually executing in the backend (not when the management WS is
+     merely open). Driven by schedule_running / schedule_run_complete
+     messages from the server. See mode-chatbot.js for receiver. */
+  function _signalRunning(on) {
+    try {
+      if (window.chatbotSignal) window.chatbotSignal('schedule', on);
+    } catch (_) { /* noop */ }
+  }
+
   var _ws = null;
   var _container = null;
   var _schedules = [];
@@ -56,17 +66,20 @@ var ScheduleTeamManager = (function () {
           // 레거시 호환
           _showDetailForm();
         } else if (msg.type === 'schedule_running') {
+          _signalRunning(true);
           _showRunProgress(msg.data && msg.data.schedule_id);
         } else if (msg.type === 'schedule_run_complete') {
+          _signalRunning(false);
           _hideRunProgress(msg.data);
           _send({ type: 'list_schedules' });
         } else if (msg.type === 'error') {
+          _signalRunning(false);
           _hideRunProgress({ status: 'error' });
         }
       } catch (err) {}
     };
 
-    _ws.onclose = function () { _ws = null; };
+    _ws.onclose = function () { _ws = null; _signalRunning(false); };
   }
 
   function _send(obj) {

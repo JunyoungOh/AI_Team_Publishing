@@ -16,6 +16,14 @@ var OvertimeManager = (function () {
   var _overtimeHistory = [];
   // NOTE: 개발(0→1) 모드는 '자동개발' 탭(mode-upgrade.js)으로 이동됨 — 야근팀은 리서치 전용
 
+  /* Sidebar "running" indicator signal — see mode-chatbot.js for receiver.
+     Defensive try/catch: signaling must NEVER break the mode itself. */
+  function _signalRunning(on) {
+    try {
+      if (window.chatbotSignal) window.chatbotSignal('overtime', on);
+    } catch (_) { /* noop */ }
+  }
+
   function mountInShell(container) {
     _container = container;
     _render();
@@ -174,6 +182,7 @@ var OvertimeManager = (function () {
 
   function _doStartOvertime(answers, detailDesc) {
     _running = true;
+    _signalRunning(true);
 
     var task = _pendingOtTask;
     var goal = _pendingOtGoal;
@@ -229,7 +238,7 @@ var OvertimeManager = (function () {
       } catch (err) {}
     };
 
-    _ws.onclose = function () { _ws = null; };
+    _ws.onclose = function () { _ws = null; _signalRunning(false); };
   }
 
   function _handleMessage(msg) {
@@ -246,6 +255,7 @@ var OvertimeManager = (function () {
       // started
     } else if (type === 'overtime_stopped') {
       _running = false;
+      _signalRunning(false);
       _addLogEntry('⏹️ 야근이 중단되었습니다.');
     } else if (type === 'overtime_list') {
       _overtimeHistory = (data.overtimes || []);
@@ -307,6 +317,7 @@ var OvertimeManager = (function () {
       _addLogEntry('📝 최종 보고서 생성 중...');
     } else if (action === 'completed') {
       _running = false;
+      _signalRunning(false);
       _addLogEntry('✅ 야근 완료! (' + data.total_iterations + '회 반복)');
       if (data.report_path) {
         _addReportLink(data.report_path);
