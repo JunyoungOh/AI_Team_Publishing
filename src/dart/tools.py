@@ -189,7 +189,7 @@ async def _get_document(
         except DartAPIError as exc:
             return f"Error: Open DART 공시원문 조회 실패 — {exc}"
         try:
-            cached_text = _extract_document_text(zip_bytes)
+            cached_text = _extract_document_text(zip_bytes, rcept_no)
         except Exception as exc:  # noqa: BLE001
             return f"Error: 공시원문 파싱 실패 — {exc}"
         cache.set(key, cached_text)
@@ -369,32 +369,93 @@ async def _list_dividend_events(
 # ── XML → 텍스트 추출 유틸 ──────────────────
 
 
-def _extract_document_text(zip_bytes: bytes) -> str:
-    """Open DART 공시서류 ZIP → 모든 XML의 텍스트 컨텐츠 연결.
+# DART 공시 ZIP 은 일반적으로 메인 본문 + 부속(감사보고서 등) 여러 XML 을 담음.
+# 파일명 규칙: "{rcept_no}.xml" = 메인, "{rcept_no}_00NNN.xml" = 부속.
+# XML 내부 ``<DOCUMENT-NAME ACODE="...">`` 코드로도 식별 가능:
+#   11011 사업보고서 / 11012 반기 / 11013 1Q / 11014 3Q
+#   00760 감사보고서 / 00761 연결감사보고서 등 부속 서류
+import re as _re_main
 
-    Open DART는 rcept_no.xml (메인 보고서) + 첨부 XML들을 ZIP으로 묶어
-    보낸다. 첫 번째 XML 파일(메인)만 추출하고 나머지는 무시 —
-    전체 텍스트는 너무 크고 대부분 주석/태그.
+_MAIN_REPORT_ACODE_RE = _re_main.compile(
+    r'<DOCUMENT-NAME[^>]*ACODE="(\d{5})"', _re_main.IGNORECASE
+)
+_MAIN_REPORT_ACODES: set[str] = {"11011", "11012", "11013", "11014"}
+
+
+def _pick_main_xml(zf: zipfile.ZipFile, rcept_no: str = "") -> str | None:
+    """Pick the main filing XML from a DART document ZIP.
+
+    The old implementation returned xml_names[0] which is whatever happens
+    to be stored first — often the 감사보고서 (audit report) attachment
+    instead of the 사업보고서 (main business report). Selection priority:
+
+    1. Filename == ``{rcept_no}.xml`` (no suffix) — the main body
+    2. First XML whose ``<DOCUMENT-NAME ACODE="...">`` is 11011-11014
+    3. Fallback: first XML file
+    """
+    names = zf.namelist()
+    xml_names = [n for n in names if n.lower().endswith(".xml")]
+    if not xml_names:
+        return None
+
+    # Strategy 1: filename without suffix is the main body
+    if rcept_no:
+        target = f"{rcept_no}.xml"
+        if target in xml_names:
+            return target
+        # Some ZIPs use nested paths — also check basename match
+        for n in xml_names:
+            if n.rsplit("/", 1)[-1] == target:
+                return n
+
+    # Strategy 2: peek ACODE header of each XML (read first 500 bytes only)
+    for name in xml_names:
+        try:
+            with zf.open(name) as f:
+                head = f.read(500).decode("utf-8", errors="ignore")
+        except Exception:  # noqa: BLE001
+            continue
+        m = _MAIN_REPORT_ACODE_RE.search(head)
+        if m and m.group(1) in _MAIN_REPORT_ACODES:
+            return name
+
+    # Strategy 3: first XML (legacy fallback)
+    return xml_names[0]
+
+
+def _extract_document_text(zip_bytes: bytes, rcept_no: str = "") -> str:
+    """Open DART 공시서류 ZIP → 메인 본문 XML 의 plain text.
+
+    Picks the real main report (not the audit attachment) using filename
+    and ACODE heuristics. For large XMLs (>1 MB) uses fast regex tag
+    stripping; for smaller ones uses ElementTree for clean text+tail
+    extraction.
     """
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-        xml_names = [n for n in zf.namelist() if n.lower().endswith(".xml")]
-        if not xml_names:
+        main_name = _pick_main_xml(zf, rcept_no)
+        if not main_name:
             return ""
-        xml_bytes = zf.read(xml_names[0])
+        xml_bytes = zf.read(main_name)
 
-    # XML 파싱 — 인코딩이 UTF-8이 아닐 수도 있으니 fromstring 직접 사용
+    # Big DART XMLs (사업보고서 can be 9+ MB) — regex stripping is ~100x
+    # faster than ET.fromstring for files this large and the resulting
+    # plain text is what we actually want to feed the LLM anyway.
+    if len(xml_bytes) > 1_000_000:
+        text = xml_bytes.decode("utf-8", errors="ignore")
+        text = _re_main.sub(r"<[^>]+>", " ", text)
+        text = _re_main.sub(r"\s+", " ", text).strip()
+        return text
+
+    # Small XMLs: use ElementTree for structure-preserving extraction
     try:
         root = ET.fromstring(xml_bytes)
     except ET.ParseError:
-        # 일부 DART XML은 DOCTYPE/entity 선언으로 인해 표준 파서가 실패
-        # 태그를 정규식으로 제거하는 fallback
-        import re
+        # DOCTYPE/entity issues — fallback to regex stripping
         text = xml_bytes.decode("utf-8", errors="ignore")
-        text = re.sub(r"<[^>]+>", " ", text)
-        text = re.sub(r"\s+", " ", text).strip()
+        text = _re_main.sub(r"<[^>]+>", " ", text)
+        text = _re_main.sub(r"\s+", " ", text).strip()
         return text
 
-    # 모든 element의 text + tail 수집
     chunks: list[str] = []
     for elem in root.iter():
         if elem.text:
