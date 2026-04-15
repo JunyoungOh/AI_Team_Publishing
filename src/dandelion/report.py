@@ -33,7 +33,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dandelion Foresight — {{QUERY}}</title>
+<title>미래상상하기 — {{QUERY}}</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:#0D1117;color:#E6EDF3;font-family:'Segoe UI','Apple SD Gothic Neo',sans-serif;overflow:hidden;height:100vh}
@@ -111,7 +111,7 @@ body{background:#0D1117;color:#E6EDF3;font-family:'Segoe UI','Apple SD Gothic Ne
   <!-- Header -->
   <div class="dandelion-header">
     <div style="display:flex;align-items:center">
-      <h1>Dandelion Foresight</h1>
+      <h1>미래상상하기</h1>
       <span class="meta">{{QUERY}} &middot; {{CREATED_AT}}</span>
     </div>
   </div>

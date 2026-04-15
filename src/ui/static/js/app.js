@@ -280,13 +280,13 @@ const Auth = {
       modesRow.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;';
       const ALL_MODES = [
         {id:'company',label:'Company',icon:'🏢'},
-        {id:'discussion',label:'Discussion',icon:'💬'},
+        {id:'discussion',label:'회의미리보기',icon:'💬'},
         {id:'secretary',label:'Secretary',icon:'📋'},
         // {id:'datalab',label:'DataLab',icon:'🔬'},  // 숨김 처리
-        {id:'foresight',label:'Foresight',icon:'📡'},
+        {id:'foresight',label:'미래상상하기',icon:'📡'},
         {id:'engineering',label:'Engineering',icon:'🛠️'},
         {id:'agent',label:'Agent',icon:'🎮'},
-        {id:'law',label:'Law',icon:'⚖️'},
+        {id:'law',label:'법령검색',icon:'⚖️'},
       ];
       const currentModes = u.visible_modes; // null = all, or array
       ALL_MODES.forEach(m => {
@@ -436,7 +436,7 @@ const Auth = {
     if (hash === 'company' || hash === 'instant') hash = 'builder'; // backward compat
     const vm = Auth.user && Auth.user.visible_modes;
     const canAccess = (mode) => !vm || vm.includes(mode);
-    const validModes = ['builder','discussion','foresight','persona','secretary','law'];
+    const validModes = ['builder','discussion','foresight','law']; // persona/secretary parked
     if (hash && validModes.includes(hash) && canAccess(hash)) {
       mm.selectMode(hash);
     } else {
@@ -484,7 +484,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (hash === 'company' || hash === 'instant') hash = 'builder'; // backward compat
     const vm = Auth.user && Auth.user.visible_modes;
     const canAccess = (mode) => !vm || vm.includes(mode);
-    const validModes = ['builder','discussion','foresight','persona','secretary','law'];
+    const validModes = ['builder','discussion','foresight','law']; // persona/secretary parked
     if (hash && validModes.includes(hash) && canAccess(hash)) {
       mm.selectMode(hash);
     } else {

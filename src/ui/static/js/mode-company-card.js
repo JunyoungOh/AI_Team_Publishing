@@ -37,11 +37,11 @@ var CardView = (function () {
   /* ── Mode titles for header ── */
   var _modeTitles = {
     builder: '플레이북',
-    discussion: 'AI 토론',
-    foresight: 'Foresight',
+    discussion: '회의미리보기',
+    foresight: '미래상상하기',
     persona: '페르소나 워크숍',
     secretary: 'AI 비서',
-    law: 'AI 법령'
+    law: '법령검색'
   };
 
   /* ── WorkspacePanel instance ── */
@@ -419,13 +419,13 @@ var CardView = (function () {
     var accentMap = {
       instant: ['AI ', 'Company'],
       builder: ['', '플레이북'],
-      discussion: ['AI ', 'Discussion'],
-      foresight: ['', 'Foresight'],
+      discussion: ['', '회의미리보기'],
+      foresight: ['', '미래상상하기'],
       persona: ['Persona ', 'Workshop'],
       secretary: ['AI ', 'Secretary'],
       schedule: ['', '자동실행'],
       skill: ['내 ', '스킬'],
-      law: ['AI ', '법령']
+      law: ['', '법령검색']
     };
     var parts = accentMap[mode] || accentMap.instant;
     title.textContent = '';
@@ -913,7 +913,7 @@ var CardView = (function () {
     container.innerHTML = [
       '<div id="dandelion-app" class="dandelion-shell">',
       '  <header class="dandelion-header">',
-      '    <div><h1>Dandelion Foresight</h1></div>',
+      '    <div><h1>미래상상하기</h1></div>',
       '    <div class="dandelion-header-right">',
       '      <span id="dandelion-status" class="dandelion-status">준비</span>',
       '    </div>',

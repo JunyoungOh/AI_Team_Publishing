@@ -112,7 +112,7 @@ class DiscussionManager {
     var modes = [
       { id: 'basic', label: 'AI \uD1A0\uB860' },
       { id: 'participate', label: '\uCC38\uC5EC\uD615 \uD1A0\uB860' },
-      { id: 'clone', label: '\uD398\uB974\uC18C\uB098 \uD074\uB860\uB2DD' },
+      // 'clone' (\uD398\uB974\uC18C\uB098 \uD074\uB860\uB2DD) parked \u2014 \uC5C5\uADF8\uB808\uC774\uB4DC \uD6C4 \uC7AC\uB178\uCD9C \uC608\uC815
     ];
     modes.forEach(function(m) {
       var btn = document.createElement('button');

@@ -399,7 +399,7 @@ class LawManager {
 
     const title = document.createElement('div');
     title.className = 'law-title';
-    title.appendChild(document.createTextNode('⚖️ AI 법령 '));
+    title.appendChild(document.createTextNode('⚖️ 법령검색 '));
     const titleDim = document.createElement('span');
     titleDim.className = 'law-title-dim';
     titleDim.textContent = '— law.go.kr 원문 기반';
