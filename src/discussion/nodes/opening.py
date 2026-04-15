@@ -17,7 +17,11 @@ import time
 from pydantic import BaseModel
 
 from src.config.settings import get_settings
-from src.discussion.prompts.moderator import MODERATOR_OPENING, STYLE_DESCRIPTIONS
+from src.discussion.prompts.moderator import (
+    MODERATOR_HUMAN_SECTION,
+    MODERATOR_OPENING,
+    STYLE_DESCRIPTIONS,
+)
 from src.discussion.prompts.participant import PARTICIPANT_SYSTEM
 from src.discussion.state import DiscussionState, Utterance, HUMAN_SPEAKER_ID
 from src.utils.bridge_factory import get_bridge
@@ -56,6 +60,10 @@ async def discussion_opening_prep(state: DiscussionState) -> dict:
         participants_info=participants_info,
         style_desc=style_desc,
     )
+    if config.human_participant:
+        mod_prompt += MODERATOR_HUMAN_SECTION.format(
+            human_name=config.human_participant.name,
+        )
 
     try:
         mod_result = await bridge.structured_query(

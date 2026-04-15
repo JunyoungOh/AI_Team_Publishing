@@ -415,6 +415,9 @@ class DiscussionManager {
     var cards = document.getElementById('disc-participant-cards');
     if (!cards) return;
     while (cards.firstChild) cards.removeChild(cards.firstChild);
+    if (this._discMode === 'participate') {
+      this._addHumanParticipantCard();
+    }
     var defaults = [
       { name: '\uCC38\uAC00\uC790 A', persona: '\uC8FC\uC81C\uC5D0 \uB300\uD55C \uC804\uBB38\uC801 \uAD00\uC810' },
       { name: '\uCC38\uAC00\uC790 B', persona: '\uB2E4\uB978 \uC2DC\uAC01\uC5D0\uC11C\uC758 \uBD84\uC11D' },
@@ -426,10 +429,11 @@ class DiscussionManager {
   _addParticipantCard(data) {
     var cards = document.getElementById('disc-participant-cards');
     if (!cards) return;
-    if (cards.children.length >= 4) return;
+    var aiCount = cards.querySelectorAll('.disc-participant-card:not(.is-human)').length;
+    if (aiCount >= 4) return;
 
     var p = data || { name: '', persona: '' };
-    var idx = cards.children.length + 1;
+    var idx = aiCount + 1;
     var card = document.createElement('div');
     card.className = 'disc-participant-card';
 
@@ -455,13 +459,62 @@ class DiscussionManager {
     removeBtn.className = 'disc-participant-remove';
     removeBtn.textContent = '\u00D7';
     removeBtn.addEventListener('click', function() {
-      if (cards.children.length <= 2) return;
+      var aiCountNow = cards.querySelectorAll('.disc-participant-card:not(.is-human)').length;
+      if (aiCountNow <= 2) return;
       card.remove();
     });
 
     card.appendChild(personaArea);
     card.appendChild(removeBtn);
     cards.appendChild(card);
+  }
+
+  _addHumanParticipantCard() {
+    var cards = document.getElementById('disc-participant-cards');
+    if (!cards) return;
+    if (cards.querySelector('.disc-participant-card.is-human')) return;
+
+    var card = document.createElement('div');
+    card.className = 'disc-participant-card is-human';
+
+    var topRow = document.createElement('div');
+    topRow.className = 'disc-pc-row';
+    var badge = document.createElement('div');
+    badge.className = 'disc-pc-number disc-pc-human-badge';
+    badge.textContent = '\uB098';  /* "\uB098" = \uB098 */
+    topRow.appendChild(badge);
+
+    var nameInput = document.createElement('input');
+    nameInput.className = 'disc-human-name';
+    nameInput.placeholder = '\uB098\uC758 \uC774\uB984 (\uC608: \uAE40\uC900\uC601)';
+    topRow.appendChild(nameInput);
+    card.appendChild(topRow);
+
+    var personaArea = document.createElement('textarea');
+    personaArea.className = 'disc-human-persona';
+    personaArea.rows = 2;
+    personaArea.placeholder = '\uB098\uC758 \uC785\uC7A5\u00B7\uBC30\uACBD\uC744 \uC790\uC720\uB86D\uAC8C (\uC608: \uB2E8\uC21C\uD568\uC744 \uCD94\uAD6C\uD558\uB294 10\uB144\uCC28 \uAC1C\uBC1C\uC790)';
+    card.appendChild(personaArea);
+
+    cards.appendChild(card);
+  }
+
+  _getHumanParticipantData() {
+    var card = this._container.querySelector('#disc-participant-cards .disc-participant-card.is-human');
+    if (!card) return null;
+    var nameInput = card.querySelector('.disc-human-name');
+    var personaArea = card.querySelector('.disc-human-persona');
+    var rawName = nameInput ? nameInput.value.trim() : '';
+    var rawPersona = personaArea ? personaArea.value.trim() : '';
+    /* \uBE48\uCE78 \uCC98\uB9AC \uADDC\uCE59:
+       - \uC774\uB984: \uBE44\uBA74 "\uC0AC\uC6A9\uC790"\uB85C \uBCF4\uCDA9
+       - \uD398\uB974\uC18C\uB098: \uBE48 \uBB38\uC790\uC5F4 \uADF8\uB300\uB85C \uC804\uC1A1 (\uBC31\uC5D4\uB4DC moderator.py:33\uC5D0\uC11C
+         "\uC2E4\uC81C \uC0AC\uC6A9\uC790 (AI\uAC00 \uC544\uB2D8)" \uD78C\uD2B8\uB97C \uC790\uB3D9 \uC0BD\uC785\uD558\uBBC0\uB85C \uB36E\uC5B4\uC4F0\uBA74 \uC548 \uB428)
+       \uB354 \uC5C4\uACA9\uD558\uAC8C \uD558\uACE0 \uC2F6\uC73C\uBA74 null \uBC18\uD658 \u2014 \uD638\uCD9C\uBD80(_startDiscussion)\uAC00
+       \uC774\uBBF8 null\uC744 \uAC10\uC9C0\uD574 \uC2DC\uC791\uC744 \uCC28\uB2E8\uD558\uB3C4\uB85D \uC5F0\uACB0\uB418\uC5B4 \uC788\uC74C. */
+    var name = rawName || '\uC0AC\uC6A9\uC790';
+    var persona = rawPersona;  /* \uBE48 \uBB38\uC790\uC5F4 \uADF8\uB300\uB85C \u2014 \uBC31\uC5D4\uB4DC\uAC00 "\uC2E4\uC81C \uC0AC\uC6A9\uC790" \uD78C\uD2B8\uB85C \uB300\uCCB4 */
+    return { name: name, persona: persona };
   }
 
   _updateParticipantSection() {
@@ -828,7 +881,7 @@ class DiscussionManager {
       return cloneResult;
     }
 
-    var normalCards = this._container.querySelectorAll('#disc-participant-cards .disc-participant-card');
+    var normalCards = this._container.querySelectorAll('#disc-participant-cards .disc-participant-card:not(.is-human)');
     if (normalCards.length === 0) {
       return this._step3Participants || [];
     }
@@ -896,9 +949,14 @@ class DiscussionManager {
     var humanJoin = this._discMode === 'participate';
     var startData = { topic: topic, participants: participants, style: style, time_limit_min: timeLimitMin };
     if (humanJoin) {
-      startData.human_participant = { name: '\uC0AC\uC6A9\uC790' };
+      var humanData = this._getHumanParticipantData();
+      if (!humanData) {
+        if (startBtn) { startBtn.disabled = false; startBtn.textContent = '\uD1A0\uB860 \uC2DC\uC791'; }
+        return;
+      }
+      startData.human_participant = humanData;
       this._participantColors['__human__'] = '#FF6B6B';
-      this._participantNames['__human__'] = '\uC0AC\uC6A9\uC790';
+      this._participantNames['__human__'] = humanData.name;
     }
 
     this._lastSpeakerId = null;
