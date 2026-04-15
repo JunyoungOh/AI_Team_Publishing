@@ -79,6 +79,11 @@ var CardView = (function () {
     if (container) container.style.display = '';
     _bootMode(mode);
     _updateHeaderForMode(mode);
+
+    // 미래아이디어 탭으로 복귀할 때 숨김 상태에서 버퍼링된 테마/씨앗을 재그리기.
+    if (mode === 'foresight' && typeof _dlRefresh === 'function') {
+      requestAnimationFrame(function () { _dlRefresh(); });
+    }
   }
 
   function _showCompanyMode(mode, prevMode) {

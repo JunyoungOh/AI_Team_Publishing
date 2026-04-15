@@ -6,6 +6,9 @@ let _dlWs = null;
 let _dlThemes = [];
 let _dlSeeds = [];
 let _dlFocusedSeed = null;
+// True when themes/seeds arrived while the tab was hidden (dims=0).
+// _dlRefresh() drains this on mode re-entry.
+let _dlPendingRender = false;
 
 /* Sidebar "running" indicator signal — see mode-chatbot.js for receiver. */
 function _dlSignalRunning(on) {
@@ -62,6 +65,7 @@ function _dlSend() {
   _dlThemes = [];
   _dlSeeds = [];
   _dlFocusedSeed = null;
+  _dlPendingRender = false;
   _dlSetStatus('running');
   _dlShowProgressBar();
 
@@ -247,6 +251,13 @@ function _dlRenderStems(themes) {
   var w = svg.clientWidth || svg.parentElement.clientWidth;
   var h = svg.clientHeight || svg.parentElement.clientHeight;
 
+  // Container hidden (tab switched mid-load) → dims=0 collapses all stems to (0,-80).
+  // Buffer and let _dlRefresh() replay when the tab becomes visible again.
+  if (!w || !h) {
+    _dlPendingRender = true;
+    return;
+  }
+
   var originX = w / 2;
   var originY = h - _DL_STEM_PADDING.bottom;
 
@@ -311,7 +322,14 @@ function _dlRenderStems(themes) {
 
 function _dlRenderSingleSeed(themeId, seed) {
   var theme = _dlThemes.find(function(t) { return t.id === themeId; });
-  if (!theme || !theme._stemPath) return;
+  if (!theme) return;
+
+  // Defer when stems weren't drawn yet or tab is hidden — keep the seed so _dlRefresh() can replay it.
+  if (!theme._stemPath || !_dlHasDims()) {
+    _dlSeeds.push(seed);
+    _dlPendingRender = true;
+    return;
+  }
 
   var svg = document.getElementById('dandelion-svg');
   if (!svg) return;
@@ -670,6 +688,59 @@ function _svgEl(tag, attrs) {
   return el;
 }
 
+// ── Refresh / redraw ──────────────────────────────
+
+function _dlHasDims() {
+  var svg = document.getElementById('dandelion-svg');
+  if (!svg) return false;
+  var w = svg.clientWidth || (svg.parentElement && svg.parentElement.clientWidth) || 0;
+  var h = svg.clientHeight || (svg.parentElement && svg.parentElement.clientHeight) || 0;
+  return w > 0 && h > 0;
+}
+
+function _dlRedrawAll() {
+  if (!_dlThemes || _dlThemes.length === 0) return;
+  if (!_dlHasDims()) return;
+
+  var savedThemes = _dlThemes.slice();
+  var savedSeedsByTheme = {};
+  _dlSeeds.forEach(function(s) {
+    if (!savedSeedsByTheme[s.theme_id]) savedSeedsByTheme[s.theme_id] = [];
+    savedSeedsByTheme[s.theme_id].push(s);
+  });
+
+  _dlClearCanvas();
+  _dlSeeds = [];
+  _dlRenderStems(savedThemes);
+
+  Object.keys(savedSeedsByTheme).forEach(function(themeId) {
+    var seeds = savedSeedsByTheme[themeId].map(function(s) {
+      return { id: s.id, title: s.title, summary: s.summary, detail: s.detail,
+               reasoning: s.reasoning, time_months: s.time_months,
+               weight: s.weight, source_count: s.source_count, theme_id: s.theme_id };
+    });
+    _dlRenderSeeds(themeId, seeds);
+  });
+}
+
+function _dlRefresh() {
+  if (!_dlPendingRender) return;
+  if (!_dlThemes || _dlThemes.length === 0) return;
+
+  if (_dlHasDims()) {
+    _dlRedrawAll();
+    _dlPendingRender = false;
+    return;
+  }
+  // Layout not settled yet; retry once next frame.
+  requestAnimationFrame(function() {
+    if (_dlPendingRender && _dlHasDims()) {
+      _dlRedrawAll();
+      _dlPendingRender = false;
+    }
+  });
+}
+
 // ── Click outside to unfocus ──────────────────────
 
 document.addEventListener('click', function(e) {
@@ -688,30 +759,8 @@ var _dlResizeTimer = null;
 window.addEventListener('resize', function() {
   if (_dlResizeTimer) clearTimeout(_dlResizeTimer);
   _dlResizeTimer = setTimeout(function() {
-    if (_dlThemes.length > 0 &&
-        typeof CardView !== 'undefined' && CardView.getActiveMode() === 'foresight') {
-      // Save current seeds data
-      var savedSeeds = {};
-      _dlSeeds.forEach(function(s) {
-        if (!savedSeeds[s.theme_id]) savedSeeds[s.theme_id] = [];
-        savedSeeds[s.theme_id].push(s);
-      });
-      var savedThemes = _dlThemes.slice();
-
-      // Redraw
-      _dlClearCanvas();
-      _dlSeeds = [];
-      _dlRenderStems(savedThemes);
-
-      // Re-render seeds per theme
-      Object.keys(savedSeeds).forEach(function(themeId) {
-        var seeds = savedSeeds[themeId].map(function(s) {
-          return { id: s.id, title: s.title, summary: s.summary, detail: s.detail,
-                   reasoning: s.reasoning, time_months: s.time_months,
-                   weight: s.weight, source_count: s.source_count, theme_id: s.theme_id };
-        });
-        _dlRenderSeeds(themeId, seeds);
-      });
+    if (typeof CardView !== 'undefined' && CardView.getActiveMode() === 'foresight') {
+      _dlRedrawAll();
     }
   }, 300);
 });
