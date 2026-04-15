@@ -153,6 +153,33 @@ async def health():
 
 _scheduler_service = None
 
+# Active company-builder WebSockets that want cron-triggered run events,
+# keyed by user_id. One user may have multiple tabs open, hence a set.
+# Populated on connection in company_builder_endpoint; cleaned up on disconnect.
+_schedule_event_listeners: "dict[str, set[WebSocket]]" = {}
+
+
+async def _broadcast_schedule_event(user_id: str, payload: dict) -> None:
+    """Fan a schedule_running / schedule_run_complete payload to all
+    company-builder sockets currently open for the given user.
+
+    Called from SchedulerService._job_callback when a cron-triggered job
+    starts and finishes — without this bridge, the UI's "자동실행 진행 중..."
+    overlay only appears for manual "지금 실행" clicks (which emit the same
+    payloads directly from the WebSocket handler).
+    """
+    listeners = _schedule_event_listeners.get(user_id)
+    if not listeners:
+        return
+    dead: list[WebSocket] = []
+    for sock in list(listeners):
+        try:
+            await sock.send_json(payload)
+        except Exception:
+            dead.append(sock)
+    for sock in dead:
+        listeners.discard(sock)
+
 
 @app.on_event("startup")
 async def _startup_cleanup():
@@ -191,6 +218,7 @@ async def _startup_cleanup():
         from src.scheduler.service import SchedulerService
         global _scheduler_service
         _scheduler_service = SchedulerService()
+        _scheduler_service.set_event_callback(_broadcast_schedule_event)
         await _scheduler_service.start()
         import logging
         logging.getLogger(__name__).info("scheduler_service_started")
@@ -558,6 +586,10 @@ async def company_builder_endpoint(ws: WebSocket):
     session = BuilderSession(user_id=user_id)
     strategy_session = StrategyBuilderSession(user_id=user_id)
 
+    # Subscribe to scheduler events so the 자동실행 overlay appears for
+    # cron-triggered runs as well as manual "지금 실행" clicks.
+    _schedule_event_listeners.setdefault(user_id, set()).add(ws)
+
     try:
         # Send initial lists (companies + strategies)
         companies = storage.list_companies(user_id)
@@ -799,6 +831,12 @@ async def company_builder_endpoint(ws: WebSocket):
             await ws.send_json({"type": "error", "data": {"message": str(e)}})
         except Exception:
             pass
+    finally:
+        listeners = _schedule_event_listeners.get(user_id)
+        if listeners is not None:
+            listeners.discard(ws)
+            if not listeners:
+                _schedule_event_listeners.pop(user_id, None)
 
 
 # ── 강화소 (Upgrade Station) ─────────────────────────────

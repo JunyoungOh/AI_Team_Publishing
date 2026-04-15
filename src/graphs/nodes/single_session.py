@@ -557,12 +557,10 @@ async def single_session_node(state: dict) -> dict:
     # 출력 형식: UI 선택(pre_context.output_format)이 항상 최우선
     output_format = pre_context.get("output_format", "html")
 
-    # Delta 비교 / Append 모드
+    # Delta 비교: 이전 실행 보고서가 있으면 같은 디렉터리로 모으고 비교 지시를 주입
     previous_report_path = pre_context.get("previous_report_path")
-    output_mode = pre_context.get("output_mode", "replace")
     is_scheduled = state.get("execution_mode") == "scheduled"
 
-    # 스케줄/Append 모드: 기존 보고서와 같은 디렉터리에 출력
     if previous_report_path:
         existing_dir = str(Path(previous_report_path).parent)
         if Path(existing_dir).exists():
@@ -578,7 +576,6 @@ async def single_session_node(state: dict) -> dict:
         strategy=strategy,
         output_format=output_format,
         previous_report_path=previous_report_path,
-        output_mode=output_mode,
         is_scheduled=is_scheduled,
     )
 

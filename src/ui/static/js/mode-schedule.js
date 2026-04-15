@@ -116,13 +116,6 @@ var ScheduleTeamManager = (function () {
     var form = document.createElement('div');
     form.className = 'st-form';
 
-    var taskInput = document.createElement('input');
-    taskInput.className = 'st-input';
-    taskInput.id = 'st-task';
-    taskInput.placeholder = _selectedStrategy
-      ? '이 플레이북으로 실행할 작업 (예: 이번주 경쟁사 동향)'
-      : '작업 내용 (예: 경쟁사 동향 모니터링)';
-
     // 시간 선택 UI (시/분/요일)
     var timeRow = document.createElement('div');
     timeRow.className = 'st-time-row';
@@ -204,29 +197,18 @@ var ScheduleTeamManager = (function () {
       fmtSelect.appendChild(opt);
     });
 
-    var modeSelect = document.createElement('select');
-    modeSelect.className = 'st-input st-input-sm';
-    modeSelect.id = 'st-output-mode';
-    [
-      { v: 'replace', l: '🔄 매번 새로 (이전 결과와 비교)' },
-      { v: 'append', l: '📎 누적 추가 (기존 파일에 추가)' },
-    ].forEach(function (o) {
-      var opt = document.createElement('option');
-      opt.value = o.v;
-      opt.textContent = o.l;
-      modeSelect.appendChild(opt);
-    });
-
     var addBtn = document.createElement('button');
     addBtn.className = 'st-add-btn';
     addBtn.id = 'st-add-btn';
-    addBtn.textContent = '+ 자동실행 추가';
+    if (_selectedStrategy) {
+      addBtn.textContent = '+ 자동실행 추가';
+    } else {
+      addBtn.textContent = '먼저 플레이북을 선택하세요';
+      addBtn.disabled = true;
+    }
     addBtn.addEventListener('click', function () {
-      var task = document.getElementById('st-task').value.trim();
-      if (!task && _selectedStrategy) {
-        task = _selectedStrategy.name || '';
-      }
-      if (!task) return;
+      if (!_selectedStrategy) return;
+      var task = _selectedStrategy.name || '자동실행';
       addBtn.disabled = true;
       addBtn.textContent = '질문 생성 중...';
       _pendingTask = task;
@@ -262,13 +244,11 @@ var ScheduleTeamManager = (function () {
       trySend();
     });
 
-    form.appendChild(taskInput);
     form.appendChild(timeRow);
     form.appendChild(dowRow);
     form.appendChild(dowHint);
     form.appendChild(cronInput);
     form.appendChild(fmtSelect);
-    form.appendChild(modeSelect);
     form.appendChild(addBtn);
     wrapper.appendChild(form);
 
@@ -328,14 +308,6 @@ var ScheduleTeamManager = (function () {
     task.className = 'st-card-task';
     task.textContent = sched.task_description || '';
     card.appendChild(task);
-
-    // 출력 모드 배지
-    if (sched.output_mode === 'append') {
-      var badge = document.createElement('span');
-      badge.className = 'st-mode-badge st-mode-append';
-      badge.textContent = '📎 누적 모드';
-      card.appendChild(badge);
-    }
 
     // 실행 이력
     var history = sched.run_history || [];
@@ -504,14 +476,12 @@ var ScheduleTeamManager = (function () {
 
   function _saveScheduleWithDetail(detail, legacyAnswers) {
     var fmt = document.getElementById('st-format');
-    var mode = document.getElementById('st-output-mode');
     var data = {
       task_description: _pendingTask,
       cron_expression: _pendingCron,
       name: _pendingTask.substring(0, 30),
       enabled: true,
       output_format: fmt ? fmt.value : 'html',
-      output_mode: mode ? mode.value : 'replace',
     };
     if (_selectedStrategy) {
       data.strategy = _selectedStrategy;
@@ -523,8 +493,6 @@ var ScheduleTeamManager = (function () {
       data.clarify_answers = legacyAnswers;
     }
     _send({ type: 'save_schedule', data: data });
-    var taskInput = document.getElementById('st-task');
-    if (taskInput) taskInput.value = '';
     _pendingTask = '';
     _pendingCron = '';
     _selectedStrategy = null;

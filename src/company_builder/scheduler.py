@@ -186,11 +186,6 @@ def _to_scheduled_job(sched: dict[str, Any], user_id: str) -> ScheduledJob:
     if prev_report:
         extra_fields["previous_report_path"] = prev_report
 
-    # 출력 모드 (replace / append)
-    output_mode = sched.get("output_mode", "replace")
-    if output_mode != "replace":
-        extra_fields["output_mode"] = output_mode
-
     # 출력 형식 (html / pdf / markdown / csv / json)
     output_format = sched.get("output_format", "html")
     if output_format != "html":

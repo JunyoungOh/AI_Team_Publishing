@@ -48,7 +48,6 @@ class PreContext(BaseModel):
     escalation_choice: str | None = None
     strategy: dict | None = None  # 분석 전략 프리셋 (싱글 세션에서 사용)
     previous_report_path: str | None = None  # Delta 비교용: 이전 실행 보고서 경로
-    output_mode: str = "replace"  # replace: 매번 새 보고서 | append: 기존 파일에 누적
 
 
 class ScheduledJob(BaseModel):

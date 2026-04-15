@@ -32,7 +32,7 @@ class CEOAgent(BaseAgent):
     # CEO 라우팅/질문 단계에서 제외할 pre_context 키
     _PRE_CONTEXT_EXCLUDE = frozenset({
         "background", "escalation_policy", "default_answer", "domain_answers",
-        "strategy", "output_format", "previous_report_path", "output_mode",
+        "strategy", "output_format", "previous_report_path",
     })
 
     @staticmethod

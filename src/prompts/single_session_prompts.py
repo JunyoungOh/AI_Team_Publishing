@@ -159,7 +159,6 @@ def build_execution_prompt(
     strategy: dict | None = None,
     output_format: str = "html",
     previous_report_path: str | None = None,
-    output_mode: str = "replace",
     is_scheduled: bool = False,
 ) -> str:
     """싱글 세션에 전달할 실행 프롬프트 조립."""
@@ -250,23 +249,6 @@ MD 파일 규칙:
 4. 변동이 없으면 "주요 변동 없음"으로 표기하세요
 """
 
-    # Append 모드 블록: 기존 파일에 데이터 누적
-    append_block = ""
-    if output_mode == "append" and previous_report_path:
-        append_block = f"""
-
-## 누적 모드 (Append)
-기존 데이터 파일이 다음 경로에 있습니다:
-`{previous_report_path}`
-
-**이번 실행에서 수집한 데이터를 기존 파일에 추가하세요:**
-- CSV: 기존 파일을 Read로 읽고, 새 행을 아래에 추가하여 같은 경로에 Write
-- JSON: 기존 JSON의 data 배열에 새 항목을 추가하여 같은 경로에 Write
-- Markdown: 기존 파일을 Read로 읽고, `---` 구분선 뒤에 새 날짜 섹션을 추가하여 Write
-- 날짜 컬럼/필드를 반드시 포함하여 언제 추가된 데이터인지 구분되게 하세요
-- 기존 데이터를 수정하거나 삭제하지 마세요
-"""
-
     return f"""## 작업
 {user_task}
 
@@ -279,7 +261,6 @@ MD 파일 규칙:
 ## 분석 깊이
 {depth_guide}
 {delta_block}
-{append_block}
 ## 출력
 최종 결과를 다음 경로에 파일로 생성하세요:
 `{report_dir}/{output_filename}`

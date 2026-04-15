@@ -51,6 +51,38 @@ class SchedulerService:
         )
         self._notifier = Notifier(self._settings)
         self._running = False
+        # Async callback for broadcasting run events to UI clients.
+        # Signature: async (user_id: str, payload: dict) -> None
+        self._event_callback = None
+
+    def set_event_callback(self, cb) -> None:
+        """Register a broadcaster invoked before/after each job execution.
+
+        The scheduler fires jobs outside the UI request/response cycle, so
+        WebSocket clients can only learn about cron-triggered runs through
+        this hook. Pass None to disable.
+        """
+        self._event_callback = cb
+
+    async def _emit_run_event(
+        self,
+        job: ScheduledJob,
+        event_type: str,
+        extra: dict | None = None,
+    ) -> None:
+        """Fan out a run event to the registered broadcaster, if any."""
+        if not self._event_callback:
+            return
+        user_id = job.tags[1] if len(job.tags) >= 2 else ""
+        schedule_id = job.job_id.removeprefix("company_")
+        payload = {
+            "type": event_type,
+            "data": {"schedule_id": schedule_id, **(extra or {})},
+        }
+        try:
+            await self._event_callback(user_id, payload)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("schedule_event_broadcast_failed: %s", e)
 
     @property
     def store(self) -> SchedulerStore:
@@ -181,10 +213,20 @@ class SchedulerService:
             return
 
         logger.info("Executing job: %s (%s)", job.name, job_id)
+        await self._emit_run_event(job, "schedule_running")
         record = await self._runner.execute_job(job)
 
         # Save execution record
         self._store.save_execution(record)
+
+        await self._emit_run_event(
+            job,
+            "schedule_run_complete",
+            {
+                "status": record.status.value if record.status else "unknown",
+                "duration_s": round(record.duration_seconds or 0, 1),
+            },
+        )
 
         # Post-execution notifications
         if record.status == ExecutionStatus.COMPLETED:
