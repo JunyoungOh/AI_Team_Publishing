@@ -510,6 +510,7 @@ class LawManager {
     };
     this.ws.onclose = () => {
       this._statusEl.textContent = 'Disconnected';
+      _lawSignalRunning(false);
       this._scheduleReconnect();
     };
     this.ws.onerror = () => { this._statusEl.textContent = 'Error'; };
@@ -545,6 +546,7 @@ class LawManager {
         break;
       case 'law_error':
         this._addSystemMsg('⚠️ ' + (msg.data?.message || '오류'));
+        _lawSignalRunning(false);
         this._setInputEnabled(true);
         break;
       case 'heartbeat':
@@ -562,7 +564,6 @@ class LawManager {
       this._currentAssistantEl = el;
       this._streamText = '';
       this._isStreaming = true;
-      _lawSignalRunning(true);
     }
     if (data.done) {
       if (this._currentAssistantEl && this._streamText) {
@@ -627,6 +628,7 @@ class LawManager {
     this._input.value = '';
     this._input.style.height = 'auto';
     this._setInputEnabled(false);
+    _lawSignalRunning(true);
   }
 
   _addSystemMsg(text) {

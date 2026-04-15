@@ -1278,6 +1278,7 @@ class DiscussionManager {
 
   _onReport(d) {
     this._showReport(d.html, d.download_url);
+    _discSignalRunning(false);
   }
 
   _onComplete(d) {
@@ -1287,6 +1288,7 @@ class DiscussionManager {
     } else {
       this._showModeratorText('\u2705 \uD1A0\uB860\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.');
     }
+    _discSignalRunning(false);
     if (window._modeManager) window._modeManager.setModeRunning('discussion', false);
   }
 
@@ -1373,6 +1375,7 @@ class DiscussionManager {
   _onError(d) {
     this._lastError = d.message || 'Unknown';
     this._showModeratorText('\u274C \uC624\uB958: ' + this._lastError);
+    _discSignalRunning(false);
   }
 
   /* ═══════════════════════════════════════════════════
