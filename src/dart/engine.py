@@ -28,6 +28,15 @@ _TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
 # DART 공시접수번호 — 14자리 숫자
 _RCEPT_NO_RE = re.compile(r"rcept_no\s*[=:]\s*(\d{14})")
 
+# LLM이 system 프롬프트를 어기고 source_url을 손으로 조립할 때 자주 하는 실수:
+# 응답 JSON의 `"rcept_no"` 필드명을 그대로 복사해서 URL 파라미터로 쓰는데,
+# DART 뷰어가 실제로 받는 파라미터 이름은 `rcpNo`(camelCase). snake_case인
+# `rcept_no=xxxxxxxxxxxxxx`로 만들어진 URL은 DART가 "거부" 페이지를 반환한다.
+# 이 새니타이저는 DART URL 쿼리 위치(`?` 또는 `&` 직후)의 14자리 rcept_no를
+# rcpNo로 재작성한다. 답변 본문 자연어 속의 "rcept_no=..." 같은 메타 언급에는
+# 건드리지 않도록 `?`/`&` 접두 + 14자리 숫자 뒤매칭으로 제한.
+_DART_URL_RCEPT_FIX_RE = re.compile(r"([?&])rcept_no=(\d{14})")
+
 # Medium-effort Sonnet handles 4-turn DART loops without bail-outs in
 # our test runs. Past 5 turns the user is better off reframing.
 _MAX_TURNS = 5
@@ -169,6 +178,18 @@ def _strip_tool_result_labels(text: str) -> str:
         return text
     cleaned = _TOOL_RESULT_LABEL_RE.sub("", text)
     return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
+def _sanitise_dart_urls(text: str) -> str:
+    """Rewrite LLM-fabricated DART URLs with the wrong parameter name.
+
+    Specifically: `?rcept_no=NNNNNNNNNNNNNN` → `?rcpNo=NNNNNNNNNNNNNN` (and
+    same for `&`). Only touches query positions so natural-language mentions
+    of "rcept_no=..." elsewhere in the answer are untouched.
+    """
+    if not text or "rcept_no=" not in text or "dart.fss.or.kr" not in text:
+        return text
+    return _DART_URL_RCEPT_FIX_RE.sub(r"\1rcpNo=\2", text)
 
 
 def _parse_cli_response(raw: str) -> tuple[str, list[dict[str, Any]]]:
@@ -332,6 +353,7 @@ class DartEngine:
             display_text = _strip_json_echo(display_text)
             display_text = _strip_tool_result_labels(display_text)
             display_text = _strip_toolu_markers(display_text)
+            display_text = _sanitise_dart_urls(display_text)
             if display_text:
                 await self._send({
                     "type": "dart_stream",
@@ -468,6 +490,7 @@ class DartEngine:
 
     def _finalise(self, text: str) -> str:
         guarded = self._verbatim_guard(text)
+        guarded = _sanitise_dart_urls(guarded)
         if _DISCLAIMER[:20] not in guarded:
             guarded = guarded.rstrip() + f"\n\n> {_DISCLAIMER}"
         return guarded

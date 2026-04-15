@@ -199,7 +199,10 @@ class DartClient:
             "induty_code": raw.get("induty_code", ""),
             "est_dt": raw.get("est_dt", ""),
             "acc_mt": raw.get("acc_mt", ""),
-            "source_url": f"https://dart.fss.or.kr/dsae001/selectPopup.do?selectKey={corp_code}",
+            # dsae001/selectPopup.do 는 DART 내부 팝업 경유 URL이라 직접 열면 404.
+            # dsab007/main.do 는 공시검색 페이지 — 회사코드로 직접 필터할 수 없지만
+            # 안전하게 로드되며 사용자가 회사명으로 다시 검색할 수 있다.
+            "source_url": "https://dart.fss.or.kr/dsab007/main.do",
             "fetched_at": _now_iso(),
         }
 
