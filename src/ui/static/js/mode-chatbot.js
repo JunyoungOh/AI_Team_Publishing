@@ -29,8 +29,8 @@
 (function () {
   const MODE_LABELS = {
     builder: '플레이북', schedule: '자동실행',
-    upgrade: '자동개발', skill: '스킬',
-    discussion: '회의미리보기', foresight: '미래상상하기', law: '법령검색',
+    upgrade: '개발의뢰', skill: '스킬',
+    discussion: '모의토론', foresight: '미래아이디어', law: '법령상담',
     // persona/secretary parked — 업그레이드 후 재노출 예정
   };
   const SVG_NS = 'http://www.w3.org/2000/svg';

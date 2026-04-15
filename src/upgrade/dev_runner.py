@@ -1,5 +1,5 @@
 # src/upgrade/dev_runner.py
-"""자동개발 — 0→1 최초개발 runner.
+"""개발의뢰 — 0→1 최초개발 runner.
 
 흐름:
   1. 명확화 질문 생성 (CLI 1회) → UI로 전달 → 사용자 답변 대기
@@ -9,7 +9,7 @@
   3. 완료 리포트 생성 (CLI 1회)
 
 NOTE: 워크스페이스 네임스페이스는 역사적 이유로 'overtime'을 그대로 사용한다.
-      (야근팀 탭에서 자동개발 탭으로 dev 모드가 이사할 때 디스크 경로를
+      (야근팀 탭에서 개발의뢰 탭으로 dev 모드가 이사할 때 디스크 경로를
        변경하지 않은 잔재 — 사용자 데이터 호환성을 위해 유지.)
 """
 from __future__ import annotations
@@ -41,7 +41,7 @@ _REPORT_TOOLS = ["Read", "Write", "Bash", "Glob", "Grep"]
 MAX_SESSIONS = 10
 _COMPLETION_MARKER = "ALL_PHASES_DONE"
 
-# 자동개발이 사용하는 워크스페이스 네임스페이스 (역사적 이름).
+# 개발의뢰이 사용하는 워크스페이스 네임스페이스 (역사적 이름).
 _WORKSPACE_MODE = "overtime"
 
 
@@ -74,7 +74,7 @@ async def _run_with_rate_limit_retry(
     - 기타 오류: max_non_rl_retries까지만 재시도
     - cwd: 강화소 등 외부 폴더 작업 시 사용
     - emit_event_type: 재시도/rate-limit 알림을 어떤 WS 타입으로 보낼지
-    - activity_event_type: 도구 사용 이벤트 WS 타입. 자동개발(최초개발)은
+    - activity_event_type: 도구 사용 이벤트 WS 타입. 개발의뢰(최초개발)은
       mode-upgrade.js가 'overtime_activity'를 listen 하므로 기본값 유지
       (역사적 이름 — 야근팀 시절부터 쓰던 것). 강화소는 'upgrade_activity'
       를 별도로 전달한다.

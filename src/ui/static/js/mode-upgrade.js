@@ -1,4 +1,4 @@
-/* mode-upgrade.js — 자동개발 탭 UI
+/* mode-upgrade.js — 개발의뢰 탭 UI
  *
  * 서브탭 2개:
  *   1) 최초개발 (0→1): 새 앱을 처음부터 자율 개발

@@ -1009,7 +1009,7 @@ async def upgrade_endpoint(ws: WebSocket):
                     _upgrade_task.cancel()
                     await ws.send_json({"type": "upgrade_stopped", "data": {}})
 
-            # ── 최초개발 (0→1) — 자동개발 탭의 '최초개발' 서브탭 ──
+            # ── 최초개발 (0→1) — 개발의뢰 탭의 '최초개발' 서브탭 ──
             elif msg_type == "start_dev_clarify":
                 data = msg.get("data", {})
                 dev_task = data.get("task", "")

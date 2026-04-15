@@ -75,7 +75,7 @@
   color: var(--text, var(--cv-text));
 }
 
-/* 자동개발 모드 탭 (역사적 ot- prefix — mode-upgrade.js와 공유) */
+/* 개발의뢰 모드 탭 (역사적 ot- prefix — mode-upgrade.js와 공유) */
 .ot-tab-switcher {
   display: flex; gap: 0; margin-bottom: 16px;
 }

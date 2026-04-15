@@ -280,13 +280,13 @@ const Auth = {
       modesRow.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;';
       const ALL_MODES = [
         {id:'company',label:'Company',icon:'🏢'},
-        {id:'discussion',label:'회의미리보기',icon:'💬'},
+        {id:'discussion',label:'모의토론',icon:'💬'},
         {id:'secretary',label:'Secretary',icon:'📋'},
         // {id:'datalab',label:'DataLab',icon:'🔬'},  // 숨김 처리
-        {id:'foresight',label:'미래상상하기',icon:'📡'},
+        {id:'foresight',label:'미래아이디어',icon:'📡'},
         {id:'engineering',label:'Engineering',icon:'🛠️'},
         {id:'agent',label:'Agent',icon:'🎮'},
-        {id:'law',label:'법령검색',icon:'⚖️'},
+        {id:'law',label:'법령상담',icon:'⚖️'},
       ];
       const currentModes = u.visible_modes; // null = all, or array
       ALL_MODES.forEach(m => {

@@ -1,6 +1,6 @@
 """Shared Claude CLI subprocess runner with rate-limit handling.
 
-자동개발(강화소/최초개발)과 미래상상이 함께 쓰는 CLI 세션 헬퍼.
+개발의뢰(강화소/최초개발)과 미래아이디어가 함께 쓰는 CLI 세션 헬퍼.
 원래는 src/overtime/runner.py 안에 있었으나, 야근팀 기능 제거 후 공유
 유틸로 분리되었다.
 """
@@ -65,7 +65,7 @@ def _get_rate_limit_wait() -> tuple[int, bool]:
 
 
 def _tool_detail(tool_name: str, inp: dict) -> str:
-    """도구 input에서 핵심 정보 한 줄 추출. 자동개발 탭 활동 카드에 표시."""
+    """도구 input에서 핵심 정보 한 줄 추출. 개발의뢰 탭 활동 카드에 표시."""
     if not isinstance(inp, dict):
         return ""
 

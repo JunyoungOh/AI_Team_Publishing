@@ -1,6 +1,6 @@
 """run.command 생성기.
 
-자동개발(최초개발/강화소)이 끝난 앱 디렉터리에 macOS 더블클릭으로 백엔드를 띄우고
+개발의뢰(최초개발/강화소)이 끝난 앱 디렉터리에 macOS 더블클릭으로 백엔드를 띄우고
 브라우저를 여는 ``run.command`` 쉘 스크립트를 자동으로 작성한다.
 
 핵심 아이디어: 정적 코드 파싱으로 포트를 알아내려 하지 않는다. 대신 생성된 쉘이
@@ -155,7 +155,7 @@ def _render_script(guess: EntryGuess) -> str:
 
     return f"""#!/usr/bin/env bash
 # run.command — Finder에서 더블클릭하면 백엔드 서버를 띄우고 브라우저를 엽니다.
-# 자동개발이 작성한 파일입니다. 엔트리/포트가 틀리면 SERVER_CMD 줄을 수정하세요.
+# 개발의뢰이 작성한 파일입니다. 엔트리/포트가 틀리면 SERVER_CMD 줄을 수정하세요.
 set -e
 cd "$(dirname "$0")"
 
@@ -202,7 +202,7 @@ wait "$SERVER_PID"
 def write_run_command(app_dir: str | os.PathLike[str]) -> Path | None:
     """``app_dir`` 안에 ``run.command`` 작성. 엔트리 감지 실패 시 None 반환.
 
-    이미 사용자가 직접 만든 run.command가 있어도 덮어쓴다 (자동개발 결과를 신뢰).
+    이미 사용자가 직접 만든 run.command가 있어도 덮어쓴다 (개발의뢰 결과를 신뢰).
     """
     app_path = Path(app_dir)
     if not app_path.is_dir():
