@@ -312,15 +312,32 @@ def _normalise_date_range(
     bgn_de: str | None,
     end_de: str | None,
 ) -> tuple[str, str]:
-    """Fill missing bgn_de/end_de with a 12-month window ending today.
+    """Fill + auto-correct bgn_de/end_de to compensate for LLM training-cutoff bias.
 
-    Open DART's list.json returns an empty array when bgn_de is missing, so
-    we always need to provide both. Defaults:
-    - both missing → bgn = today − 365d, end = today
-    - only bgn missing → bgn = end − 365d
-    - only end missing → end = today (then window anchored on end)
+    Two problems this solves:
+
+    1. **Open DART requires bgn_de**: list.json returns an empty array when
+       bgn_de is missing. So we always provide both values.
+
+    2. **LLM passes stale end_de**: Claude's training cutoff is ~mid-2025, so
+       even with "today is 2026-04-15" in the system prompt, it often anchors
+       date ranges on training-time dates (e.g. bgn_de=20240101, end_de=20251231).
+       This silently misses 2026 filings.
+
+       Heuristic: if the caller's end_dt is in the past but **within 365 days
+       of today**, the intent is "recent filings" with wrong anchoring → snap
+       end_dt forward to today and expand bgn_dt if it becomes too narrow.
+       If end_dt is **more than 365 days behind today**, it's a genuine
+       historical query (e.g. "삼성전자 2018 사업보고서") → leave untouched.
+
+    Resulting behaviour:
+    - No dates passed → today − 365d ~ today (12mo recent window)
+    - Partial range (recent intent) → end snaps to today, bgn extended if needed
+    - Partial range (historical, end > 365d old) → preserved as-is
     """
     today = datetime.now()
+    recent_threshold = timedelta(days=365)
+    min_window = timedelta(days=365)
 
     def _parse(s: str | None) -> datetime | None:
         if not s:
@@ -330,8 +347,33 @@ def _normalise_date_range(
         except ValueError:
             return None
 
-    end_dt = _parse(end_de) or today
-    bgn_dt = _parse(bgn_de) or (end_dt - timedelta(days=365))
+    end_dt = _parse(end_de)
+    bgn_dt = _parse(bgn_de)
+
+    # Case 1: end_de explicitly given and in the recent past → LLM likely
+    # meant "up to now" but anchored on training cutoff. Snap forward.
+    if end_dt is not None:
+        age = today - end_dt
+        if timedelta(0) < age < recent_threshold:
+            end_dt = today
+
+    # Case 2: no end_de at all → default to today.
+    if end_dt is None:
+        end_dt = today
+
+    # Now fill bgn_dt. If bgn_dt is None → 12 months before end_dt.
+    # If bgn_dt given but the window is narrower than min_window AND we just
+    # snapped end_dt forward, expand bgn_dt to keep a useful window.
+    if bgn_dt is None:
+        bgn_dt = end_dt - min_window
+    elif (end_dt - bgn_dt) < min_window and end_dt == today:
+        # We extended end to today → widen bgn so the window is not tiny.
+        bgn_dt = end_dt - min_window
+
+    # Guardrail: bgn_dt never after end_dt.
+    if bgn_dt > end_dt:
+        bgn_dt = end_dt - min_window
+
     return bgn_dt.strftime("%Y%m%d"), end_dt.strftime("%Y%m%d")
 
 
