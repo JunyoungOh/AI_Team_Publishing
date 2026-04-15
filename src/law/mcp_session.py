@@ -214,12 +214,27 @@ def _build_system_prompt() -> str:
      > ⚠️ 본 답변은 법령 원문을 기반으로 한 일반 정보 제공이며, 법률 자문이 아닙니다.
      > 구체적 사안은 반드시 변호사와 상담하시기 바랍니다.
 
-6. **답변 종료 규칙 (매우 중요)**
-   - 디스클레이머를 쓴 직후 **답변을 즉시 종료**하십시오.
-   - 디스클레이머 이후에 **어떤 도구도 추가로 호출하지 마십시오**. 선제적 판례/해석례 조회 금지.
-   - 사용자가 구체적으로 요청한 것만 답하고, 더 깊은 조사는 **사용자의 후속 질문을 기다리십시오**.
+6. **⛔ 과도한 탐색 금지 — 한 소스 답변 원칙**
 
-7. **출력 형식**
+   사용자 질문에 답변 가능한 **최소한의 데이터**만 조회하십시오:
+
+   - 관련 법령 원문(조문) 2~3개로 답변 가능하면 **거기서 종료**. 원문이 다른 조문이나
+     판례를 참조해도 **선제적으로 조회하지 마십시오**.
+   - 사용자가 "관련 판례도 찾아줘" 라고 명시하지 않는 한, 판례(`prec_*`)·해석례(`expc_*`)
+     도구를 자진 호출하지 마십시오.
+   - "혹시 더 필요하시면…" 같은 후속 제안은 텍스트로만 쓸 수는 있으나,
+     그 제안을 **스스로 실행하지 마십시오**.
+   - **목표**: 키워드 질문은 1+1(검색+조문) 호출, 상황 질문은 최대 4~5회 호출.
+     이를 넘어가면 질문을 더 좁게 재해석하십시오.
+
+7. **⛔ 디스클레이머 이후 도구 호출 절대 금지**
+
+   디스클레이머(`⚠️ 본 답변은…`)를 쓴 **그 순간 답변은 완결된 것**입니다.
+   이후에 어떤 `law_*`, `prec_*`, `expc_*` 도구도 호출하지 마십시오.
+   **이 규칙을 위반하면 시스템이 subprocess 를 강제 종료하고 불완전한 응답만 반환합니다.**
+   디스클레이머를 쓰기 전에 필요한 모든 정보를 이미 확보한 상태여야 합니다.
+
+8. **출력 형식**
    - 한국어 마크다운 (##, 인용블록, 리스트). 표는 필요할 때만.
    - 도구 없이 답변을 생성하지 마십시오 — 반드시 도구 결과에 근거하여 작성.
 
@@ -248,6 +263,8 @@ class LawMcpSession:
         self._ttl_task: asyncio.Task | None = None
         # flash → medium effort, think → high effort
         self._mode = "flash"
+        # See DartMcpSession — disclaimer sentinel for subprocess-level guard
+        self._disclaimer_seen = False
 
     @property
     def session_id(self) -> str:
@@ -328,6 +345,8 @@ class LawMcpSession:
 
     async def _run_claude(self, user_text: str) -> None:
         """Spawn claude CLI with the Law MCP config and stream events to the WS."""
+        self._disclaimer_seen = False
+
         mcp_config_path = _build_law_mcp_config()
         system_prompt = _build_system_prompt()
         effort = "medium" if self._mode == "flash" else "high"
@@ -442,7 +461,18 @@ class LawMcpSession:
                             "data": {"token": text, "done": False},
                         })
                         emitted = True
+                        if not self._disclaimer_seen and _DISCLAIMER[:20] in "".join(acc_text):
+                            self._disclaimer_seen = True
                 elif btype == "tool_use":
+                    # Guard: tool_use after disclaimer = rule violation
+                    if self._disclaimer_seen:
+                        logger.warning(
+                            "LawMcpSession: tool_use emitted after disclaimer — "
+                            "terminating subprocess to prevent context overshoot"
+                        )
+                        self._cancelled = True
+                        self._kill_proc()
+                        return emitted
                     tool_name = block.get("name", "")
                     tool_input = block.get("input", {}) or {}
                     short = tool_name.replace("mcp__law__", "")
@@ -457,11 +487,20 @@ class LawMcpSession:
 
         elif etype == "result":
             if event.get("is_error"):
-                error_text = str(event.get("result", ""))[:300]
-                logger.warning("CLI result error: %s", error_text)
+                error_text = str(event.get("result", "")).strip()[:300]
+                logger.warning("CLI result error: %s", error_text or "(empty)")
+                if not error_text:
+                    if acc_text and sum(len(t) for t in acc_text) > 200:
+                        return emitted
+                    friendly = (
+                        "모델이 응답을 조합하는 도중 내부 한도에 도달했습니다. "
+                        "질문을 좀 더 좁게(구체적 조문·사건 명시) 다시 시도해 주세요."
+                    )
+                else:
+                    friendly = f"CLI 오류: {error_text}"
                 await self._send({
                     "type": "law_error",
-                    "data": {"message": f"CLI 오류: {error_text}"},
+                    "data": {"message": friendly},
                 })
                 emitted = True
 

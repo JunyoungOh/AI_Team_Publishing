@@ -147,10 +147,28 @@ def _build_system_prompt() -> str:
    > ⚠️ 본 답변은 Open DART 공시자료를 기반으로 한 정보 제공이며, 투자 자문이 아닙니다.
    > 투자 결정은 반드시 원문 공시와 전문가 상담을 거치시기 바랍니다.
 
-7. **답변 종료 규칙 (매우 중요)** — 디스클레이머를 쓴 직후 **답변을 즉시 종료**하십시오.
-   - 디스클레이머 이후에 **어떤 도구도 추가로 호출하지 마십시오**. `get_document`, `get_financial` 등 "사용자가 더 원할지도 모르는" 선제적 조회 금지.
-   - 사용자가 구체적으로 요청한 것만 답하고, 더 깊은 조사는 **사용자의 후속 질문을 기다리십시오**. 예를 들어 "최신 사업보고서 찾아줘" 에는 목록·링크만 제공하고, 원문 요약이 필요하면 사용자가 "요약해줘" 라고 다시 요청할 때 `get_document` 를 호출.
-   - "혹시 더 필요하시면…" 같은 follow-up 제안은 텍스트로만 한 줄 쓸 수는 있으나, 그 제안을 **스스로 실행하지는 마십시오**.
+7. **⛔ 과도한 탐색 금지 — 한 소스 답변 원칙 (매우 중요)**
+
+   사용자 질문에 대해 **답변 가능한 최소한의 데이터**만 조회하십시오. 기준 규칙:
+
+   - **메인 공시 원문 1건**(대개 최신 사업보고서)에서 답을 도출할 수 있다면 **거기서 종료**.
+     해당 원문에 "2026-02-20 주총소집공고", "정정공시 참조" 같은 다른 공시 언급이 있어도
+     **선제적으로 조회하지 마십시오**.
+   - 사용자가 "최신 반영해서" 또는 "주주총회 이후 변동 포함해서" 같이 **명시적으로**
+     최신화를 요청하지 않은 경우, 가장 최근 정기보고서의 **기준일 데이터**로 답변을 완결하고
+     답변 본문에 "※ 이 정보는 [사업보고서 제출일] 기준이며, 그 이후 변동 사항은 반영되지 않았습니다"
+     한 줄만 추가하십시오.
+   - "혹시 더 필요하시면…" 같은 후속 제안은 텍스트로만 한 줄 쓸 수는 있으나,
+     그 제안을 **스스로 실행하지 마십시오**. 사용자의 후속 질문을 기다립니다.
+   - **목표**: 1~3개의 도구 호출로 답변 완결. 4회를 넘어가면 질문을 더 좁게 재해석하거나
+     사용자에게 구체화를 요청하십시오.
+
+8. **⛔ 디스클레이머 이후 도구 호출 절대 금지**
+
+   디스클레이머(`⚠️ 본 답변은…`)를 쓴 **그 순간 답변은 완결된 것**입니다.
+   이후에 어떤 `get_document`, `get_financial`, `list_disclosures` 호출도 하지 마십시오.
+   **이 규칙을 위반하면 시스템이 subprocess 를 강제 종료하고 불완전한 응답만 반환합니다.**
+   디스클레이머를 쓰기 전에 필요한 모든 정보를 이미 확보한 상태여야 합니다.
 
 도구 결과가 빈 배열이거나 오류이면 **추측으로 채우지 마십시오**. "Open DART에서 해당 자료를 확인할 수 없습니다" 라고 답하고 사용자에게 다른 조건(기간, 회사명, 보고서 종류)을 요청하십시오.
 """
@@ -177,6 +195,10 @@ class DartMcpSession:
         self._ttl_task: asyncio.Task | None = None
         # flash → medium effort, think → high effort
         self._mode = "flash"
+        # Tracks whether the accumulated answer already contains the
+        # disclaimer. Once True, any further tool_use from the LLM triggers
+        # an immediate subprocess kill (see _handle_stream_event).
+        self._disclaimer_seen = False
 
     @property
     def session_id(self) -> str:
@@ -254,6 +276,9 @@ class DartMcpSession:
 
     async def _run_claude(self, user_text: str) -> None:
         """Spawn claude CLI with the DART MCP config and stream events to the WS."""
+        # Reset disclaimer tracking for this new request
+        self._disclaimer_seen = False
+
         mcp_config_path = _build_dart_mcp_config()
         system_prompt = _build_system_prompt()
         effort = "medium" if self._mode == "flash" else "high"
@@ -368,7 +393,21 @@ class DartMcpSession:
                             "data": {"token": text, "done": False},
                         })
                         emitted = True
+                        # Detect disclaimer marker once it's streamed
+                        if not self._disclaimer_seen and _DISCLAIMER[:20] in "".join(acc_text):
+                            self._disclaimer_seen = True
                 elif btype == "tool_use":
+                    # Guard: if the answer + disclaimer is already written,
+                    # the LLM is violating the "stop after disclaimer" rule.
+                    # Kill the subprocess to prevent overshoot → CLI crash.
+                    if self._disclaimer_seen:
+                        logger.warning(
+                            "DartMcpSession: tool_use emitted after disclaimer — "
+                            "terminating subprocess to prevent context overshoot"
+                        )
+                        self._cancelled = True
+                        self._kill_proc()
+                        return emitted
                     tool_name = block.get("name", "")
                     tool_input = block.get("input", {}) or {}
                     short = tool_name.replace("mcp__dart__", "")
@@ -384,11 +423,25 @@ class DartMcpSession:
         elif etype == "result":
             # Final CLI result event. Carries error flag when subprocess failed.
             if event.get("is_error"):
-                error_text = str(event.get("result", ""))[:300]
-                logger.warning("CLI result error: %s", error_text)
+                error_text = str(event.get("result", "")).strip()[:300]
+                logger.warning("CLI result error: %s", error_text or "(empty)")
+                # Empty is_error typically means CLI internal max_turns or
+                # token budget exceeded. If we already streamed a substantial
+                # answer, suppress the noisy error message — the user already
+                # has a useful response.
+                if not error_text:
+                    if acc_text and sum(len(t) for t in acc_text) > 200:
+                        # We have a real answer — treat overshoot as success
+                        return emitted
+                    friendly = (
+                        "모델이 응답을 조합하는 도중 내부 한도에 도달했습니다. "
+                        "질문을 좀 더 좁게(구체적 연도·항목 명시) 다시 시도해 주세요."
+                    )
+                else:
+                    friendly = f"CLI 오류: {error_text}"
                 await self._send({
                     "type": "dart_error",
-                    "data": {"message": f"CLI 오류: {error_text}"},
+                    "data": {"message": friendly},
                 })
                 emitted = True
 
