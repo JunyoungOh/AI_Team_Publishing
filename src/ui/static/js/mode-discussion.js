@@ -52,6 +52,7 @@ class DiscussionManager {
     this._lastError = null;
     this._injectionMode = false;
     this._humanTimerIv = null;
+    this._reportShown = false;
   }
 
   /* ═══════════════════════════════════════════════════
@@ -987,7 +988,9 @@ class DiscussionManager {
       self._stopTimer();
       _discSignalRunning(false);
       if (window._modeManager) window._modeManager.setModeRunning('discussion', false);
-      /* If no content received, show error */
+      /* If no content received, show error — but NOT if the final report
+         has already been rendered (which intentionally clears all panels). */
+      if (self._reportShown) return;
       var panels = self._container.querySelectorAll('.disc-panel-msg');
       if (panels.length === 0) {
         var errDetail = self._lastError || (self._discConnected ? '\uC11C\uBC84 \uB0B4\uBD80 \uC624\uB958' : '\uC11C\uBC84 \uC5F0\uACB0 \uC2E4\uD328');
@@ -1546,6 +1549,7 @@ class DiscussionManager {
      ═══════════════════════════════════════════════════ */
 
   _showReport(html, downloadUrl) {
+    this._reportShown = true;
     var c = this._container;
     while (c.firstChild) c.removeChild(c.firstChild);
     var self = this;
@@ -1628,6 +1632,7 @@ class DiscussionManager {
     this._discConnected = false;
     this._lastError = null;
     this._discMode = 'basic';
+    this._reportShown = false;
     this.ws = null;
   }
 

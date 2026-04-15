@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -13,6 +14,37 @@ from src.discussion.state import DiscussionState
 from src.utils.bridge_factory import get_bridge
 
 logger = logging.getLogger(__name__)
+
+
+_FENCE_ONLY_LINE = re.compile(r"^\s*`{2,}\s*[a-zA-Z0-9]*\s*$")
+_HTML_CLOSING_TAG = re.compile(r"</[a-zA-Z][^>]*>|<[a-zA-Z][^>]*/>")
+
+
+def _sanitize_llm_html(raw: str) -> str:
+    """Strip markdown code fences and trailing narration from LLM HTML output.
+
+    LLMs occasionally wrap HTML in ```html ... ``` fences and append Korean
+    commentary ("위 HTML 조각은 ...") despite explicit prompt instructions.
+    These artifacts render as literal text on the final report and hurt the
+    design. This function removes them defensively.
+    """
+    if not raw:
+        return raw
+
+    lines = raw.splitlines()
+    lines = [ln for ln in lines if not _FENCE_ONLY_LINE.match(ln)]
+
+    last_html_idx = -1
+    for i, ln in enumerate(lines):
+        if _HTML_CLOSING_TAG.search(ln):
+            last_html_idx = i
+    if last_html_idx != -1:
+        lines = lines[: last_html_idx + 1]
+
+    while lines and not lines[0].lstrip().startswith("<"):
+        lines.pop(0)
+
+    return "\n".join(lines).strip()
 
 
 def _format_participants(config) -> str:
@@ -152,7 +184,7 @@ async def discussion_report(state: DiscussionState) -> dict:
             max_turns=2,
             effort="medium",
         )
-        html_fragment = html.strip()
+        html_fragment = _sanitize_llm_html(html)
     except Exception as e:
         logger.warning("discussion_report_llm_failed: %s", e)
         # Fallback: render transcript as simple HTML
