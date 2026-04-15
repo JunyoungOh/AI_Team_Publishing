@@ -79,18 +79,53 @@
     return s;
   }
 
-  /* Smooth partial markdown during streaming: speculatively close unclosed
-     bold/code markers, and hide trailing unclosed [mode] tags. This prevents
-     visible flicker when characters like `**` are typed one-by-one. */
+  /* Smooth partial markdown during streaming: hide trailing tokens that are
+     structurally incomplete so they don't flicker as raw characters while the
+     typewriter is painting them. Also speculatively close unclosed bold/code
+     so mid-stream content renders rich rather than as literal ** / `. */
   function smoothPartialMarkdown(text) {
+    let out = text;
+
     // 1. Hide trailing unclosed mode tag: "We recommend [inst" → "We recommend "
-    let out = text.replace(/\[[a-z_]*$/, '');
+    out = out.replace(/\[[a-z_]*$/, '');
 
-    // 2. Speculatively close unclosed **bold**
-    const doubles = (out.match(/\*\*/g) || []).length;
-    if (doubles % 2 === 1) out += '**';
+    // 2. Hide trailing incomplete heading marker on the last line.
+    //    "...\n## " or "## " at start → strip until heading has content.
+    out = out.replace(/(^|\n)#{1,6}[ \t]*$/, '$1');
 
-    // 3. Speculatively close unclosed `inline code`
+    // 3. Hide trailing incomplete list marker on the last line
+    //    "...\n- " or "...\n1. " without content → strip.
+    out = out.replace(/(^|\n)[-*][ \t]*$/, '$1');
+    out = out.replace(/(^|\n)\d+\.[ \t]*$/, '$1');
+
+    // 4. Hide trailing incomplete blockquote "...\n> "
+    out = out.replace(/(^|\n)>[ \t]*$/, '$1');
+
+    // 4b. Hide trailing incomplete table row — last line starts with `|` but
+    //     hasn't been closed with a final `|` yet. Prevents raw "| 모 | 요약"
+    //     flicker while the typewriter is mid-paint of a table row.
+    //     (A completed row ends with `|`, so we only hide rows whose last
+    //      non-whitespace char is NOT `|`.)
+    out = out.replace(/(^|\n)\|[^\n]*$/, (match, prefix) => {
+      const lastChar = match.replace(/\s+$/, '').slice(-1);
+      return lastChar === '|' ? match : prefix;
+    });
+
+    // 5. Handle unclosed **bold**. If the text already ends with a literal
+    //    "**" (i.e. opening marker just typed, no content yet), strip it —
+    //    auto-closing would produce "****" which is still invalid content.
+    //    Otherwise, if odd number of "**", append a closing "**".
+    if (/\*\*\s*$/.test(out)) {
+      const doublesBefore = (out.match(/\*\*/g) || []).length;
+      if (doublesBefore % 2 === 1) {
+        out = out.replace(/\*\*\s*$/, '');
+      }
+    } else {
+      const doubles = (out.match(/\*\*/g) || []).length;
+      if (doubles % 2 === 1) out += '**';
+    }
+
+    // 6. Speculatively close unclosed `inline code`
     const backticks = (out.match(/`/g) || []).length;
     if (backticks % 2 === 1) out += '`';
 
@@ -98,77 +133,143 @@
   }
 
   /* ── Minimal safe markdown → DOM renderer (no innerHTML) ──
-     Supports: headings (#, ##, ###), ul (-/*), ol (1.), blockquote (>),
-     horizontal rule (---), paragraphs. Inline: **bold**, *italic*, `code`,
-     [slug] mode-tag chips. Uses matchAll (no regex.exec) for safety. */
+     Line-based parser that handles LLM-style markdown where structural
+     markers (#, -, *, 1., >, ---) often lack surrounding blank lines.
+     A structural line always starts a new block; consecutive same-type
+     list lines group into one list. Non-structural lines collapse into
+     paragraphs until the next structural marker. Inline: **bold**, *italic*,
+     `code`, [slug] mode-tag chips. */
   function renderMarkdownInto(text, parent, onModeTagClick) {
-    const blocks = text.split(/\n\n+/);
-    blocks.forEach((block) => {
-      const trimmed = block.trim();
-      if (!trimmed) return;
+    const lines = text.split('\n');
+    let i = 0;
+
+    const isHeading = (line) => /^#{1,6}[ \t]+.+$/.test(line);
+    const isUl = (line) => /^[-*][ \t]+.+$/.test(line);
+    const isOl = (line) => /^\d+\.[ \t]+.+$/.test(line);
+    const isBq = (line) => /^>[ \t]?/.test(line);
+    const isHr = (line) => /^-{3,}$/.test(line) || /^\*{3,}$/.test(line);
+    // Table row: starts and ends with `|` and has at least one `|` inside.
+    // Separator row (e.g. `|---|---|`) has only dashes/colons/pipes/spaces.
+    const isTableRow = (line) => /^\|.*\|\s*$/.test(line) && line.indexOf('|', 1) < line.length - 1;
+    const isTableSep = (line) => /^\|[\s\-:|]+\|\s*$/.test(line);
+
+    const splitTableRow = (line) => {
+      // "|a|b|c|" → ["a","b","c"] (trim each, drop empty leading/trailing from outer |)
+      const inner = line.trim().replace(/^\||\|$/g, '');
+      return inner.split('|').map((c) => c.trim());
+    };
+
+    while (i < lines.length) {
+      const raw = lines[i];
+      const line = raw.trim();
+
+      // Skip blank lines
+      if (!line) { i++; continue; }
 
       // Horizontal rule
-      if (/^-{3,}$/.test(trimmed) || /^\*{3,}$/.test(trimmed)) {
+      if (isHr(line)) {
         parent.appendChild(document.createElement('hr'));
-        return;
+        i++;
+        continue;
       }
 
-      // Heading
-      const hMatch = trimmed.match(/^(#{1,3})\s+(.+)$/);
-      if (hMatch) {
-        const heading = document.createElement('h' + hMatch[1].length);
-        renderInline(hMatch[2], heading, onModeTagClick);
+      // Heading (single line, cap at h3 to keep bubble compact)
+      if (isHeading(line)) {
+        const m = line.match(/^(#{1,6})[ \t]+(.+)$/);
+        const level = Math.min(m[1].length, 3);
+        const heading = document.createElement('h' + level);
+        renderInline(m[2], heading, onModeTagClick);
         parent.appendChild(heading);
-        return;
+        i++;
+        continue;
       }
 
-      // Blockquote (> line, possibly multi-line)
-      if (/^>\s?/.test(trimmed)) {
+      // Blockquote (consume consecutive > lines)
+      if (isBq(line)) {
         const bq = document.createElement('blockquote');
-        const inner = trimmed.split('\n')
-          .map(l => l.replace(/^>\s?/, ''))
-          .join(' ');
-        renderInline(inner, bq, onModeTagClick);
+        const parts = [];
+        while (i < lines.length && isBq(lines[i].trim())) {
+          parts.push(lines[i].trim().replace(/^>[ \t]?/, ''));
+          i++;
+        }
+        renderInline(parts.join(' '), bq, onModeTagClick);
         parent.appendChild(bq);
-        return;
+        continue;
       }
 
-      // Unordered list
-      const firstLine = trimmed.split('\n')[0];
-      if (/^[-*]\s/.test(firstLine)) {
+      // Unordered list (consume consecutive - or * lines)
+      if (isUl(line)) {
         const ul = document.createElement('ul');
-        trimmed.split('\n').forEach((line) => {
-          const m = line.match(/^[-*]\s+(.+)$/);
+        while (i < lines.length && isUl(lines[i].trim())) {
+          const m = lines[i].trim().match(/^[-*][ \t]+(.+)$/);
           if (m) {
             const li = document.createElement('li');
             renderInline(m[1], li, onModeTagClick);
             ul.appendChild(li);
           }
-        });
+          i++;
+        }
         parent.appendChild(ul);
-        return;
+        continue;
       }
 
-      // Ordered list
-      if (/^\d+\.\s/.test(firstLine)) {
+      // Ordered list (consume consecutive 1. 2. ... lines)
+      if (isOl(line)) {
         const ol = document.createElement('ol');
-        trimmed.split('\n').forEach((line) => {
-          const m = line.match(/^\d+\.\s+(.+)$/);
+        while (i < lines.length && isOl(lines[i].trim())) {
+          const m = lines[i].trim().match(/^\d+\.[ \t]+(.+)$/);
           if (m) {
             const li = document.createElement('li');
             renderInline(m[1], li, onModeTagClick);
             ol.appendChild(li);
           }
-        });
+          i++;
+        }
         parent.appendChild(ol);
-        return;
+        continue;
       }
 
-      // Paragraph (collapse single newlines to spaces)
-      const p = document.createElement('p');
-      renderInline(trimmed.replace(/\n/g, ' '), p, onModeTagClick);
-      parent.appendChild(p);
-    });
+      // Table (consume consecutive |-bounded lines). First row becomes header
+      // row with <th>. Separator row (|---|---|) is skipped.
+      if (isTableRow(line)) {
+        const rows = [];
+        while (i < lines.length && isTableRow(lines[i].trim())) {
+          const t = lines[i].trim();
+          if (!isTableSep(t)) rows.push(t);
+          i++;
+        }
+        if (rows.length > 0) {
+          const table = document.createElement('table');
+          rows.forEach((row, rowIdx) => {
+            const tr = document.createElement('tr');
+            const cells = splitTableRow(row);
+            cells.forEach((cellText) => {
+              const cell = document.createElement(rowIdx === 0 ? 'th' : 'td');
+              renderInline(cellText, cell, onModeTagClick);
+              tr.appendChild(cell);
+            });
+            table.appendChild(tr);
+          });
+          parent.appendChild(table);
+        }
+        continue;
+      }
+
+      // Paragraph — consume until a structural marker or blank line.
+      const paragraphParts = [];
+      while (i < lines.length) {
+        const l = lines[i].trim();
+        if (!l) break;
+        if (isHeading(l) || isUl(l) || isOl(l) || isBq(l) || isHr(l) || isTableRow(l)) break;
+        paragraphParts.push(l);
+        i++;
+      }
+      if (paragraphParts.length > 0) {
+        const p = document.createElement('p');
+        renderInline(paragraphParts.join(' '), p, onModeTagClick);
+        parent.appendChild(p);
+      }
+    }
   }
 
   /* Tokenize inline markdown using matchAll (no regex.exec).
