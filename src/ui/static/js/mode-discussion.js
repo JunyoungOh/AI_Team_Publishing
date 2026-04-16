@@ -1400,7 +1400,15 @@ class DiscussionManager {
 
   _onModerator(d) {
     var targetName = this._participantNames[d.next_speaker_id] || d.next_speaker_id;
-    this._showModeratorText(targetName + '\uB2D8\uC5D0\uAC8C: ' + d.instruction);
+    var el = document.getElementById('disc-mod-text');
+    if (el) {
+      el.textContent = '';
+      var targetSpan = document.createElement('span');
+      targetSpan.className = 'disc-mod-target';
+      targetSpan.textContent = targetName + '\uB2D8\uC5D0\uAC8C: ';
+      el.appendChild(targetSpan);
+      el.appendChild(document.createTextNode(d.instruction || ''));
+    }
     this._setSpeaking(d.next_speaker_id);
   }
 
@@ -1428,6 +1436,24 @@ class DiscussionManager {
     }
     _discSignalRunning(false);
     if (window._modeManager) window._modeManager.setModeRunning('discussion', false);
+
+    /* Morph the stop button into a "back to setup" button whenever the live
+       grid is still on-screen (i.e. no report took over). Covers both user
+       cancellation and edge cases where completion fires without a report. */
+    if (!this._reportShown && this._container) {
+      var stopBtn = this._container.querySelector('.disc-stop-btn');
+      if (stopBtn) {
+        var freshBtn = stopBtn.cloneNode(false);
+        freshBtn.textContent = '\u2190 \uCC98\uC74C\uC73C\uB85C';
+        freshBtn.classList.add('disc-back-btn');
+        var self = this;
+        freshBtn.addEventListener('click', function() {
+          self._resetState();
+          self._showSetup();
+        });
+        stopBtn.parentNode.replaceChild(freshBtn, stopBtn);
+      }
+    }
   }
 
   _onHumanTurn(d) {
