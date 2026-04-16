@@ -76,7 +76,7 @@ function _dlSend() {
 
 // ── Progress bar (replaces input area) ────────────
 
-var _dlStepNames = ['', '테마 결정', '데이터 수집', '상상', '리포트'];
+var _dlStepNames = ['', '테마 결정', '데이터 수집', '상상'];
 
 function _dlShowProgressBar() {
   var inputArea = document.getElementById('dandelion-input-area');
@@ -85,7 +85,7 @@ function _dlShowProgressBar() {
   if (progressArea) progressArea.style.display = 'flex';
 
   // Reset all steps
-  for (var i = 1; i <= 4; i++) {
+  for (var i = 1; i <= 3; i++) {
     var step = document.getElementById('dandelion-step-' + i);
     if (step) {
       step.className = 'dandelion-step';

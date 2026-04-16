@@ -151,10 +151,6 @@ class DandelionEngine:
             created_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
         )
 
-        # Stage 4: Auto-generate report
-        await self._progress(4, "리포트 생성 중...")
-        await self._generate_report(tree)
-
         await self._ws.send_json({"type": "complete"})
         return tree
 
@@ -217,34 +213,6 @@ class DandelionEngine:
             pass
 
         return result
-
-    async def _generate_report(self, tree: DandelionTree):
-        """Generate HTML report and notify frontend."""
-        try:
-            from src.dandelion.report import generate_html_report
-            import tempfile
-            import os
-
-            html = generate_html_report(tree)
-            report_dir = tempfile.mkdtemp(prefix="dandelion_report_")
-            report_path = os.path.join(report_dir, "foresight.html")
-            with open(report_path, "w", encoding="utf-8") as f:
-                f.write(html)
-
-            logger.info("report_generated path=%s", report_path)
-            await self._ws.send_json({
-                "type": "export_ready",
-                "url": f"/download?path={report_path}",
-            })
-        except Exception as exc:
-            logger.error("report_generation_failed error=%s", exc)
-            try:
-                await self._ws.send_json({
-                    "type": "export_error",
-                    "message": f"리포트 생성 실패: {exc}",
-                })
-            except Exception:
-                pass
 
     async def _decide_themes(self, query: str, files: list[str], clarify_answers: dict[str, str] | None = None) -> ThemeAssignment:
         """Stage 1: Sonnet decides 4 themes."""
