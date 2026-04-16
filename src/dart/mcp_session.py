@@ -134,7 +134,9 @@ def _build_system_prompt() -> str:
 - `get_company(corp_code)` — 기업개황
 - `get_document(rcept_no, max_chars=20000)` — 공시 원문 텍스트
 - `get_financial(corp_code, bsns_year, reprt_code, fs_sections)` — 재무제표.
-  `fs_sections`: `["IS"]`=손익, `["BS"]`=재무상태, `["CF"]`=현금흐름, `["IS","BS"]`=교차비율
+  `fs_sections`: `["IS"]`=손익, `["BS"]`=재무상태, `["CF"]`=현금흐름, `["IS","BS"]`=교차비율.
+  **"최신" 요청은 `bsns_year` 추측 금지** → 먼저 `list_disclosures(pblntf_detail_ty="A001")`
+  로 최근 사업보고서를 조회해 `report_nm`(예: `사업보고서 (2024.12)`) 의 연도를 사용
 - `list_shareholder_reports(corp_code)` — 대량보유+임원 지분
 - `list_dividend_events(corp_code, bsns_year)` — 배당
 
