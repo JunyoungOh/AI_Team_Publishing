@@ -288,6 +288,15 @@ var ScheduleTeamManager = (function () {
     name.textContent = sched.name || sched.task_description || '(무제)';
     top.appendChild(name);
 
+    var runCount = sched.run_count || 0;
+    if (runCount > 0) {
+      var badge = document.createElement('span');
+      badge.className = 'st-run-count';
+      badge.textContent = runCount + '회 실행';
+      badge.title = '총 ' + runCount + '회 자동실행됨';
+      top.appendChild(badge);
+    }
+
     var toggle = document.createElement('button');
     toggle.className = 'st-toggle' + (sched.enabled ? ' st-toggle-on' : '');
     toggle.textContent = sched.enabled ? 'ON' : 'OFF';

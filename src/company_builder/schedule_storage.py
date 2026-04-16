@@ -61,6 +61,7 @@ def save_schedule(user_id: str, schedule: dict[str, Any]) -> dict[str, Any]:
     schedule.setdefault("enabled", True)
     schedule.setdefault("run_history", [])
     schedule.setdefault("max_run_history", 30)
+    schedule.setdefault("run_count", 0)
 
     d = _user_schedule_dir(user_id)
     path = _safe_path(d, f"{schedule['id']}.json")
@@ -126,6 +127,7 @@ def add_run_record(
     }
     sched["run_history"].append(record)
     sched["last_run"] = record["started_at"]
+    sched["run_count"] = sched.get("run_count", 0) + 1
 
     # Trim history
     max_h = sched.get("max_run_history", 30)

@@ -219,6 +219,28 @@ class SchedulerService:
         # Save execution record
         self._store.save_execution(record)
 
+        # Update JSON schedule file (run_count + run_history) for company_builder jobs
+        if job.tags and job.tags[0] == "company_builder":
+            try:
+                from src.company_builder import schedule_storage as ss
+
+                user_id = job.tags[1] if len(job.tags) >= 2 else ""
+                schedule_id = job_id.removeprefix("company_")
+                report_path = ""
+                if record.final_state_summary:
+                    report_path = record.final_state_summary.get("report_path", "")
+                status = record.status.value if record.status else "unknown"
+                if report_path and status == "running":
+                    status = "completed"
+                ss.add_run_record(
+                    user_id, schedule_id,
+                    run_id=record.execution_id,
+                    status=status,
+                    report_path=report_path,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("schedule_json_update_failed: %s", e)
+
         await self._emit_run_event(
             job,
             "schedule_run_complete",
