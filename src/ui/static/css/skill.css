@@ -166,7 +166,7 @@
 .skill-msg-body h3,
 .skill-msg-body h4 {
   margin: 12px 0 6px;
-  color: #f0f6fc;
+  color: var(--cv-text);
   font-weight: 600;
 }
 .skill-msg-body h1 { font-size: 1.1em; }
@@ -183,7 +183,7 @@
 }
 .skill-msg-body code {
   background: var(--cv-glass-hi);
-  color: #f0a858;
+  color: var(--cv-accent);
   padding: 1px 5px;
   border-radius: 3px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -203,7 +203,7 @@
   padding: 0;
 }
 .skill-msg-body strong {
-  color: #f0f6fc;
+  color: var(--cv-text);
   font-weight: 600;
 }
 .skill-msg-body em {
@@ -322,7 +322,7 @@
   border-color: var(--cv-border-hi);
 }
 .skill-card-hint {
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--cv-dim);
   font-size: 0.78em;
   margin-top: 8px;
 }
@@ -348,8 +348,8 @@
   min-height: 220px;
   max-height: 600px;
   padding: 12px 14px;
-  background: rgba(0, 0, 0, 0.25);
-  color: #f0f0f0;
+  background: var(--cv-glass);
+  color: var(--cv-text);
   border: 1px solid var(--cv-border-hi);
   border-radius: 6px;
   font-family: inherit;
@@ -369,35 +369,36 @@
   cursor: pointer;
   font-size: 0.85em;
 }
-.skill-exec-run-btn:hover { background: #8b4cf0; }
+.skill-exec-run-btn:hover { filter: brightness(1.15); }
 .skill-exec-run-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
 .skill-exec-log {
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--cv-glass);
+  border: 1px solid var(--cv-border);
   border-radius: 6px;
   padding: 8px 12px;
   max-height: 180px;
   overflow-y: auto;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 0.78em;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--cv-text);
 }
 .exec-log-line { padding: 2px 0; }
-.exec-log-line.tool { color: #a8c8ff; }
-.exec-log-line.error { color: #ff9090; }
-.exec-log-line.completed { color: #90e090; }
-.exec-log-line.timeout { color: #ffb060; }
-.exec-log-line.started { color: #c8a8ff; }
-.exec-log-line.closed { color: rgba(255, 255, 255, 0.5); }
+.exec-log-line.tool { color: var(--cv-accent); }
+.exec-log-line.error { color: var(--cv-red); }
+.exec-log-line.completed { color: var(--cv-green); }
+.exec-log-line.timeout { color: #d97706; }
+.exec-log-line.started { color: var(--cv-accent); }
+.exec-log-line.closed { color: var(--cv-dim); }
 
 .skill-exec-result {
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--cv-glass);
   border-radius: 6px;
   padding: 12px 16px;
-  color: #f0f0f0;
+  color: var(--cv-text);
   line-height: 1.55;
   font-size: 0.9em;
 }
@@ -408,7 +409,7 @@
   color: var(--cv-text);
 }
 .skill-exec-result pre {
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--cv-glass-hi);
   padding: 10px;
   border-radius: 4px;
   overflow-x: auto;
@@ -422,7 +423,7 @@
 
 .skill-exec-history-count {
   align-self: flex-start;
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--cv-dim);
   font-size: 0.78em;
   padding: 4px 10px;
   border: 1px solid var(--cv-glass-hi);
