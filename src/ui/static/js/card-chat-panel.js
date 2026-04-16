@@ -48,8 +48,14 @@ class CardChatPanel {
     this.sendBtn = document.createElement('button');
     this.sendBtn.className = 'cc-send';
     this.sendBtn.textContent = '\uc804\uc1a1'; // 전송
+    this.stopBtn = document.createElement('button');
+    this.stopBtn.id = 'card-stop-btn';
+    this.stopBtn.title = '\uc2e4\ud589 \uc911\uc9c0'; // 실행 중지
+    this.stopBtn.textContent = '\u25a0 \uc911\uc9c0'; // ■ 중지
+    this.stopBtn.style.display = 'none';
     inputWrap.appendChild(this.inputEl);
     inputWrap.appendChild(this.sendBtn);
+    inputWrap.appendChild(this.stopBtn);
 
     this.el.appendChild(header);
     this.el.appendChild(this.messagesEl);

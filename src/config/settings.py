@@ -41,7 +41,7 @@ class Settings(BaseSettings):
 
     # Membership & Auth
     entry_code: str = ""              # 입장코드 (관리자가 수시 변경, 비어있으면 입장코드 검증 스킵)
-    membership_enabled: bool = True   # 회원제 활성 (False면 로그인 없이 접근 가능)
+    membership_enabled: bool = False  # 회원제 기본 비활성 (True면 로그인/입장코드 요구)
     jwt_secret: str = ""              # JWT 서명 키 (비어있으면 서버 시작 시 자동 생성)
     user_db_path: str = "data/users.db"
 

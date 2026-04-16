@@ -2399,8 +2399,14 @@ body::before {
     <div class="ch-left">
       <h1 class="ch-title">AI <span class="ch-title-accent">Company</span></h1>
     </div>
-    <div class="ch-center" id="ch-usage-area"></div>
+    <div class="ch-center"></div>
     <div class="ch-right">
+      <a href="https://claude.ai/settings/usage" target="_blank" rel="noopener noreferrer"
+         style="font-size:12px; color:var(--dim); text-decoration:none; padding:6px 12px; border:1px solid var(--border); border-radius:8px; transition:color .15s, border-color .15s;"
+         onmouseover="this.style.color='var(--cv-text)'; this.style.borderColor='var(--cv-text)';"
+         onmouseout="this.style.color='var(--dim)'; this.style.borderColor='var(--border)';">
+        사용량 확인
+      </a>
       <button id="theme-toggle" title="테마 전환" aria-label="테마 전환">
         <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="4"/>
@@ -2410,7 +2416,6 @@ body::before {
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
         </svg>
       </button>
-      <button id="card-stop-btn" style="display:none" title="실행 중지">■ 중지</button>
     </div>
   </header>
   <nav id="card-sidebar">
@@ -2723,8 +2728,6 @@ body::before {
 <script src="/static/js/card-builder.js"></script>
 <script src="/static/js/card-editor.js"></script>
 <script src="/static/js/workspace-panel.js"></script>
-<link rel="stylesheet" href="/static/css/usage-bar.css">
-<script src="/static/js/usage-bar.js"></script>
 <script src="/static/js/mode-company-card.js?v=20260403b"></script>
 <!-- Module: Dandelion Foresight -->
 <script src="/static/js/mode-dandelion.js?v=20260403b"></script>
