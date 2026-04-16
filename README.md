@@ -239,10 +239,6 @@ python3 -m uvicorn src.ui.server:app --host 0.0.0.0 --port 8000
 
 👉 [INSTALL_GUIDE.txt](./INSTALL_GUIDE.txt) — Python·Node.js·Claude Code 설치부터 API 키 발급까지 단계별 설명
 
-개발자 대상 아키텍처 문서:
-
-👉 [CLAUDE.md](./CLAUDE.md) — 에이전트 계층, 워커 실행 흐름, 코딩 컨벤션
-
 ---
 
 ## 🛑 종료 방법
