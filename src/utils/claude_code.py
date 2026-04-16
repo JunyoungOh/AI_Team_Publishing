@@ -1324,6 +1324,15 @@ class ClaudeCodeBridge:
                 proc.terminate()
             except Exception:
                 pass
+            # terminate 후 1초 내 종료 안 되면 kill로 강제 종료.
+            # 이걸 안 하면 proc.wait()가 영원히 block되어 타임아웃이 무의미해짐.
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
 
         await proc.wait()
         _unregister_process(proc)

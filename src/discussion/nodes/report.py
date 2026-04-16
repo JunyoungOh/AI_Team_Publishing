@@ -23,10 +23,18 @@ logger = logging.getLogger(__name__)
 
 
 def _format_participants(config) -> str:
-    return "\n".join(
-        f"- {p.name}: {p.persona}"
-        for p in config.participants
-    )
+    """AI 참가자 + 사람 참가자(참여형 모드)를 모두 나열.
+
+    사람 참가자를 빼면 transcript에는 등장하는데 참가자 목록엔 없어
+    LLM이 reconcile을 시도하느라 thinking 토큰을 소진하거나 generation이
+    꼬이는 현상이 발생했음.
+    """
+    lines = [f"- {p.name}: {p.persona}" for p in config.participants]
+    human = getattr(config, "human_participant", None)
+    if human:
+        persona = (human.persona or "실제 사람 참가자").strip()
+        lines.append(f"- {human.name} (사람): {persona}")
+    return "\n".join(lines)
 
 
 def _format_full_transcript(utterances: list[dict]) -> str:
@@ -139,22 +147,62 @@ def _fallback_html(config, utterances: list[dict]) -> str:
 """
 
 
-async def discussion_report(state: DiscussionState) -> dict:
+async def discussion_report(state: DiscussionState, config: dict | None = None) -> dict:
     """Generate final discussion report as a complete self-contained HTML file.
 
     Flow:
-    1. Prepare output directory and absolute target path
-    2. Ask the LLM to Write the complete HTML file directly to that path
-    3. Read the file back → stream payload + history DB backfill
-    4. Three-layer defense: file exists? → raw response is HTML? → transcript fallback
+    1. Emit phase=report immediately so the UI can start its live timer
+       instead of staying stuck on the previous "closing" message.
+    2. Prepare output directory and absolute target path
+    3. Ask the LLM to Write the complete HTML file directly to that path,
+       with an on_event hook that emits a stage update when Write fires.
+    4. Read the file back → stream payload + history DB backfill
+    5. Three-layer defense: file exists? → raw response is HTML? → transcript fallback
     """
-    config = state["config"]
+    disc_config = state["config"]
     session_id = state.get("session_id", "")
+
+    # Direct access to the DiscussionSession — the pipeline runner stashes
+    # it in graph_config["configurable"]["session"] (see session.py:205).
+    # We use it to push real-time progress events that the default engine
+    # flow can't emit (nodes return a single dict at the end; no mid-node
+    # yields). This is the recommended pattern for long-running nodes that
+    # need streaming feedback.
+    session = None
+    if config:
+        session = (config.get("configurable") or {}).get("session")
+
+    async def _emit_stage(message: str) -> None:
+        if session is None:
+            return
+        try:
+            await session._send({
+                "type": "disc_report_stage",
+                "data": {"message": message},
+            })
+        except Exception:
+            logger.debug("disc_report_stage_emit_failed", exc_info=True)
+
+    async def _emit_phase_report() -> None:
+        if session is None:
+            return
+        try:
+            await session._send({
+                "type": "disc_phase",
+                "data": {"phase": "report", "node": "report"},
+            })
+        except Exception:
+            logger.debug("disc_phase_report_emit_failed", exc_info=True)
+
+    # Announce the transition from closing → report BEFORE the slow LLM call
+    # so the UI can start its elapsed-time counter immediately.
+    await _emit_phase_report()
+
     output_dir = _prepare_output_dir(session_id)
 
     if output_dir is None:
         # Report export disabled or directory prep failed — return in-memory fallback
-        html = _fallback_html(config, state["utterances"])
+        html = _fallback_html(disc_config, state["utterances"])
         return {
             "final_report_html": html,
             "report_file_path": "",
@@ -165,28 +213,44 @@ async def discussion_report(state: DiscussionState) -> dict:
     bridge = get_bridge()
 
     prompt = REPORT_SYSTEM.format(
-        topic=config.topic,
-        style=STYLE_DESCRIPTIONS.get(config.style, config.style),
-        participants_info=_format_participants(config),
+        topic=disc_config.topic,
+        style=STYLE_DESCRIPTIONS.get(disc_config.style, disc_config.style),
+        participants_info=_format_participants(disc_config),
         full_transcript=_format_full_transcript(state["utterances"]),
         output_path=str(report_path),
     )
 
+    def _on_cli_event(ev: dict):
+        """Forward Claude CLI tool-use events to the discussion WebSocket.
+
+        The CLI emits a tool_use event the moment the LLM calls Write.
+        That is the real "writing" signal — not a fake progress bar.
+        """
+        if ev.get("action") != "tool_use":
+            return None
+        if ev.get("tool") == "Write":
+            return _emit_stage("\u270D\uFE0F HTML \uD30C\uC77C \uC791\uC131 \uC911...")
+        return None
+
     llm_response_text = ""
     try:
+        # 간소화된 프롬프트 + effort="medium"(요약·인사이트 추출에 필수) +
+        # 타임아웃 10분. effort=low는 요약·인사이트 품질이 떨어져서 medium 유지.
+        # 10분 내 완성 안 되면 fallback HTML로 전환 (20분 대기 근본 차단).
         llm_response_text = await bridge.raw_query(
             system_prompt=prompt,
             user_message=(
-                f"토론 주제 '{config.topic}'의 최종 리포트를 "
+                f"토론 주제 '{disc_config.topic}'의 최종 리포트를 "
                 f"'{report_path}' 경로에 Write 툴로 저장하세요. "
-                f"완결된 단일 HTML 파일이어야 합니다."
+                f"간결한 HTML 한 파일이어야 합니다."
             ),
-            model=config.model_moderator,
+            model=disc_config.model_moderator,
             allowed_tools=["Write"],
             extra_dirs=[str(output_dir)],
             timeout=600,
-            max_turns=6,
-            effort="high",
+            max_turns=3,
+            effort="medium",
+            on_event=_on_cli_event,
         )
     except Exception as e:
         logger.warning("discussion_report_llm_failed: %s", e)
@@ -215,13 +279,13 @@ async def discussion_report(state: DiscussionState) -> dict:
     # Defense layer 3: transcript fallback
     if not final_html:
         logger.warning("discussion_report_falling_back_to_transcript")
-        final_html = _fallback_html(config, state["utterances"])
+        final_html = _fallback_html(disc_config, state["utterances"])
         try:
             report_path.write_text(final_html, encoding="utf-8")
         except Exception:
             logger.warning("discussion_report_fallback_write_failed", exc_info=True)
 
-    _write_metadata(output_dir, config, session_id)
+    _write_metadata(output_dir, disc_config, session_id)
     logger.info("discussion_report_saved", extra={"path": str(report_path)})
 
     return {
