@@ -39,6 +39,36 @@ class SkillRegistry:
         current.append(record)
         self._atomic_write([asdict(r) for r in current])
 
+    def remove(self, slug: str) -> SkillRecord | None:
+        """slug에 해당하는 레코드를 제거하고 반환. 없으면 None."""
+        current = self.list_all()
+        found = None
+        remaining = []
+        for r in current:
+            if r.slug == slug:
+                found = r
+            else:
+                remaining.append(r)
+        if found is None:
+            return None
+        self._atomic_write([asdict(r) for r in remaining])
+        return found
+
+    def update(self, slug: str, *, name: str | None = None) -> SkillRecord | None:
+        """slug에 해당하는 레코드의 필드를 갱신. 없으면 None."""
+        current = self.list_all()
+        target = None
+        for r in current:
+            if r.slug == slug:
+                target = r
+                break
+        if target is None:
+            return None
+        if name is not None:
+            target.name = name
+        self._atomic_write([asdict(r) for r in current])
+        return target
+
     def _atomic_write(self, data: list) -> None:
         """임시 파일 + rename으로 원자적 쓰기 (부분 쓰기 방지)."""
         self.path.parent.mkdir(parents=True, exist_ok=True)

@@ -316,6 +316,102 @@
   grid-column: 1 / -1;
 }
 
+/* ── 카드 액션 버튼 (편집 · 삭제) ── */
+.skill-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  justify-content: flex-end;
+}
+.skill-card-action-btn {
+  padding: 4px 10px;
+  font-size: 0.75em;
+  border: 1px solid var(--cv-border-hi);
+  background: transparent;
+  color: var(--cv-dim);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.skill-card-action-btn:hover {
+  color: var(--cv-text);
+  border-color: var(--cv-text);
+  background: var(--cv-glass);
+}
+.skill-card-del-btn:hover {
+  color: var(--cv-red);
+  border-color: var(--cv-red);
+}
+
+/* ── 편집 모달 ── */
+.skill-edit-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.skill-edit-modal {
+  background: var(--cv-bg);
+  border: 1px solid var(--cv-border-hi);
+  border-radius: 12px;
+  width: min(90vw, 700px);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+.skill-edit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--cv-border);
+}
+.skill-edit-header h3 {
+  margin: 0;
+  font-size: 1em;
+  color: var(--cv-text);
+}
+.skill-edit-close {
+  background: none;
+  border: none;
+  color: var(--cv-dim);
+  font-size: 1.4em;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.skill-edit-close:hover { color: var(--cv-text); }
+.skill-edit-textarea {
+  flex: 1;
+  min-height: 400px;
+  margin: 16px 20px;
+  padding: 14px;
+  background: var(--cv-glass);
+  color: var(--cv-text);
+  border: 1px solid var(--cv-border-hi);
+  border-radius: 8px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.85em;
+  line-height: 1.6;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.skill-edit-textarea:focus {
+  outline: none;
+  border-color: var(--cv-accent);
+}
+.skill-edit-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--cv-border);
+}
+
 /* ── 카드 인라인 펼침 (Plan 2) ── */
 .skill-card.expanded {
   background: var(--cv-accent-bg);

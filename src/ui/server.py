@@ -1171,6 +1171,90 @@ async def skill_builder_runs(slug: str):
     return {"runs": [asdict(r) for r in records]}
 
 
+@app.delete("/api/skill-builder/skills/{slug}")
+async def skill_builder_delete(slug: str):
+    """스킬 삭제: registry에서 제거 + 디스크 파일 삭제."""
+    import shutil
+    from pathlib import Path as _Path
+
+    from fastapi.responses import JSONResponse
+
+    from src.skill_builder.registry import SkillRegistry
+
+    reg = SkillRegistry(path=_Path("data/skills/registry.json"))
+    removed = reg.remove(slug)
+    if removed is None:
+        return JSONResponse({"error": "스킬을 찾을 수 없습니다"}, status_code=404)
+
+    skill_dir = _Path(removed.skill_path)
+    if skill_dir.exists() and skill_dir.is_dir():
+        shutil.rmtree(skill_dir, ignore_errors=True)
+
+    return {"ok": True, "slug": slug}
+
+
+@app.get("/api/skill-builder/skills/{slug}/body")
+async def skill_builder_get_body(slug: str):
+    """스킬 SKILL.md 본문 조회 (편집용)."""
+    from pathlib import Path as _Path
+
+    from fastapi.responses import JSONResponse
+
+    from src.skill_builder.registry import SkillRegistry
+
+    reg = SkillRegistry(path=_Path("data/skills/registry.json"))
+    matching = [r for r in reg.list_all() if r.slug == slug]
+    if not matching:
+        return JSONResponse({"error": "스킬을 찾을 수 없습니다"}, status_code=404)
+
+    skill_md = _Path(matching[0].skill_path) / "SKILL.md"
+    if not skill_md.exists():
+        return JSONResponse({"error": "SKILL.md 파일 없음"}, status_code=404)
+
+    return {"slug": slug, "body": skill_md.read_text(encoding="utf-8")}
+
+
+@app.put("/api/skill-builder/skills/{slug}/body")
+async def skill_builder_update_body(slug: str, request: Request):
+    """스킬 SKILL.md 본문 저장 (편집용)."""
+    from pathlib import Path as _Path
+
+    from fastapi.responses import JSONResponse
+
+    from src.skill_builder.registry import SkillRegistry
+
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    body = data.get("body", "")
+    if not body.strip():
+        return JSONResponse({"error": "본문이 비어있습니다"}, status_code=400)
+
+    reg = SkillRegistry(path=_Path("data/skills/registry.json"))
+    matching = [r for r in reg.list_all() if r.slug == slug]
+    if not matching:
+        return JSONResponse({"error": "스킬을 찾을 수 없습니다"}, status_code=404)
+
+    skill_md = _Path(matching[0].skill_path) / "SKILL.md"
+    skill_md.parent.mkdir(parents=True, exist_ok=True)
+    skill_md.write_text(body, encoding="utf-8")
+
+    # frontmatter에서 name 추출하여 registry 갱신
+    name = matching[0].name
+    if body.startswith("---"):
+        parts = body.split("---", 2)
+        if len(parts) >= 3:
+            for line in parts[1].splitlines():
+                if line.strip().startswith("description:"):
+                    name = line.split(":", 1)[1].strip()[:50]
+                    break
+    reg.update(slug, name=name)
+
+    return {"ok": True, "slug": slug}
+
+
 @app.websocket("/ws/skill-execute")
 async def skill_execute_endpoint(ws: WebSocket):
     """스킬 카드 실행 — single shot 실행 후 종료.

@@ -275,8 +275,34 @@ var SkillManager = (function () {
           hint.textContent = '클릭해서 실행';
           card.appendChild(hint);
 
+          // ── 카드 액션 버튼 (편집 + 삭제) ──
+          var actions = document.createElement('div');
+          actions.className = 'skill-card-actions';
+
+          var editBtn = document.createElement('button');
+          editBtn.className = 'skill-card-action-btn skill-card-edit-btn';
+          editBtn.textContent = '편집';
+          editBtn.title = 'SKILL.md 편집';
+          editBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            _openEditModal(s);
+          });
+          actions.appendChild(editBtn);
+
+          var delBtn = document.createElement('button');
+          delBtn.className = 'skill-card-action-btn skill-card-del-btn';
+          delBtn.textContent = '삭제';
+          delBtn.title = '스킬 삭제';
+          delBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            _deleteSkill(s.slug, s.name || s.slug);
+          });
+          actions.appendChild(delBtn);
+          card.appendChild(actions);
+
           card.addEventListener('click', function (e) {
             if (e.target.closest('.skill-exec-panel')) return;
+            if (e.target.closest('.skill-card-actions')) return;
             _toggleExecPanel(card, s);
           });
 
@@ -514,6 +540,97 @@ var SkillManager = (function () {
     _ws.onclose = function () {
       _appendSystem(logEl, '세션 종료');
       _signalRunning(false);
+    };
+  }
+
+  // ── 삭제 ──
+  function _deleteSkill(slug, displayName) {
+    if (!confirm('"' + displayName + '" 스킬을 삭제할까요?\n삭제하면 되돌릴 수 없습니다.')) return;
+    fetch('/api/skill-builder/skills/' + encodeURIComponent(slug), { method: 'DELETE' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function () { _activePanel = 'list'; _render(); })
+      .catch(function (e) { alert('삭제 실패: ' + e.message); });
+  }
+
+  // ── 편집 모달 ──
+  function _openEditModal(skill) {
+    var overlay = document.createElement('div');
+    overlay.className = 'skill-edit-overlay';
+
+    var modal = document.createElement('div');
+    modal.className = 'skill-edit-modal';
+
+    var header = document.createElement('div');
+    header.className = 'skill-edit-header';
+    var titleEl = document.createElement('h3');
+    titleEl.textContent = '스킬 편집: ' + (skill.name || skill.slug);
+    header.appendChild(titleEl);
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'skill-edit-close';
+    closeBtn.textContent = '\u00D7';
+    closeBtn.onclick = function () { overlay.remove(); };
+    header.appendChild(closeBtn);
+    modal.appendChild(header);
+
+    var editor = document.createElement('textarea');
+    editor.className = 'skill-edit-textarea';
+    editor.value = '불러오는 중...';
+    editor.disabled = true;
+    modal.appendChild(editor);
+
+    var footer = document.createElement('div');
+    footer.className = 'skill-edit-footer';
+    var saveBtn = document.createElement('button');
+    saveBtn.className = 'skill-create-btn';
+    saveBtn.textContent = '저장';
+    saveBtn.disabled = true;
+    var cancelBtn = document.createElement('button');
+    cancelBtn.className = 'skill-card-action-btn';
+    cancelBtn.textContent = '취소';
+    cancelBtn.onclick = function () { overlay.remove(); };
+    footer.appendChild(cancelBtn);
+    footer.appendChild(saveBtn);
+    modal.appendChild(footer);
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    // Load current body
+    fetch('/api/skill-builder/skills/' + encodeURIComponent(skill.slug) + '/body')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) { editor.value = '오류: ' + data.error; return; }
+        editor.value = data.body || '';
+        editor.disabled = false;
+        saveBtn.disabled = false;
+      })
+      .catch(function (e) { editor.value = '불러오기 실패: ' + e.message; });
+
+    saveBtn.onclick = function () {
+      saveBtn.disabled = true;
+      saveBtn.textContent = '저장 중...';
+      fetch('/api/skill-builder/skills/' + encodeURIComponent(skill.slug) + '/body', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: editor.value }),
+      })
+        .then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
+        .then(function () {
+          overlay.remove();
+          _activePanel = 'list';
+          _render();
+        })
+        .catch(function (e) {
+          alert('저장 실패: ' + e.message);
+          saveBtn.disabled = false;
+          saveBtn.textContent = '저장';
+        });
     };
   }
 
