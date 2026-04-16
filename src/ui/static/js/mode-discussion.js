@@ -53,6 +53,9 @@ class DiscussionManager {
     this._injectionMode = false;
     this._humanTimerIv = null;
     this._reportShown = false;
+    this._reportTimerIv = null;
+    this._reportTimerStart = 0;
+    this._reportStageText = '';
   }
 
   /* ═══════════════════════════════════════════════════
@@ -681,8 +684,21 @@ class DiscussionManager {
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       var data = await resp.json();
       var participants = data.participants || [];
+      var humanSuggestion = data.human_suggestion || null;
       if (participants.length > 0 && cards) {
         while (cards.firstChild) cards.removeChild(cards.firstChild);
+        if (self._discMode === 'participate') {
+          self._addHumanParticipantCard();
+          if (humanSuggestion) {
+            var hCard = cards.querySelector('.disc-participant-card.is-human');
+            if (hCard) {
+              var hName = hCard.querySelector('.disc-human-name');
+              var hPersona = hCard.querySelector('.disc-human-persona');
+              if (hName && humanSuggestion.name) hName.value = humanSuggestion.name;
+              if (hPersona && humanSuggestion.persona) hPersona.value = humanSuggestion.persona;
+            }
+          }
+        }
         participants.forEach(function(p) { self._addParticipantCard(p); });
       }
     } catch (e) {
@@ -1236,6 +1252,7 @@ class DiscussionManager {
       disc_moderator: function(d) { self._onModerator(d); },
       disc_round: function(d) { self._onRound(d); },
       disc_report: function(d) { self._onReport(d); },
+      disc_report_stage: function(d) { self._onReportStage(d); },
       disc_complete: function(d) { self._onComplete(d); },
       disc_human_turn: function(d) { self._onHumanTurn(d); },
       disc_search_start: function(d) { self._onSearchStart(d); },
@@ -1273,7 +1290,7 @@ class DiscussionManager {
       closing: '\uD1A0\uB860 \uB9C8\uBB34\uB9AC \uC911...',
       report: '\uC778\uC0AC\uC774\uD2B8 \uB9AC\uD3EC\uD2B8 \uC0DD\uC131 \uC911...',
     };
-    if (phaseLabels[d.phase]) {
+    if (phaseLabels[d.phase] && d.phase !== 'report') {
       this._showModeratorText(phaseLabels[d.phase]);
     }
 
@@ -1287,7 +1304,47 @@ class DiscussionManager {
       this._showModeratorText('\uD83D\uDCCB \uD1A0\uB860 \uB0B4\uC6A9\uC744 \uC815\uB9AC\uD558\uACE0 \uC788\uC2B5\uB2C8\uB2E4...');
     }
     if (d.phase === 'report') {
-      this._showModeratorText('\uD83D\uDCCA \uC778\uC0AC\uC774\uD2B8 \uB9AC\uD3EC\uD2B8 \uC0DD\uC131 \uC911...');
+      /* Start the live report timer. Updates every second with elapsed time
+         + rotating reassurance. The timer is stopped by _onReport() when
+         the report arrives, or _onComplete() / _onError() on teardown. */
+      this._reportStageText = '\uD83E\uDD16 \uB9AC\uD3EC\uD2B8 \uC791\uC131 \uC911';
+      this._startReportTimer();
+    }
+  }
+
+  _startReportTimer() {
+    this._stopReportTimer();
+    this._reportTimerStart = Date.now();
+    var self = this;
+    var render = function() {
+      var elapsed = Math.floor((Date.now() - self._reportTimerStart) / 1000);
+      var mm = Math.floor(elapsed / 60);
+      var ss = elapsed % 60;
+      var timeStr = (mm > 0 ? mm + '\uBD84 ' : '') + ss + '\uCD08 \uACBD\uACFC';
+      self._showModeratorText(self._reportStageText + ' \u00B7 ' + timeStr);
+    };
+    render();
+    this._reportTimerIv = setInterval(render, 1000);
+  }
+
+  _stopReportTimer() {
+    if (this._reportTimerIv) {
+      clearInterval(this._reportTimerIv);
+      this._reportTimerIv = null;
+    }
+  }
+
+  _onReportStage(d) {
+    if (!d || !d.message) return;
+    this._reportStageText = d.message;
+    /* Force an immediate render so the user sees the stage change without
+       waiting for the next 1-second tick. */
+    if (this._reportTimerIv) {
+      var elapsed = Math.floor((Date.now() - this._reportTimerStart) / 1000);
+      var mm = Math.floor(elapsed / 60);
+      var ss = elapsed % 60;
+      var timeStr = (mm > 0 ? mm + '\uBD84 ' : '') + ss + '\uCD08 \uACBD\uACFC';
+      this._showModeratorText(this._reportStageText + ' \u00B7 ' + timeStr);
     }
   }
 
@@ -1338,12 +1395,14 @@ class DiscussionManager {
   }
 
   _onReport(d) {
+    this._stopReportTimer();
     this._showReport(d.html, d.download_url);
     _discSignalRunning(false);
   }
 
   _onComplete(d) {
     this._stopTimer();
+    this._stopReportTimer();
     if (d && d.cancelled) {
       this._showModeratorText('\u23F9 \uD1A0\uB860\uC774 \uC911\uB2E8\uB418\uC5C8\uC2B5\uB2C8\uB2E4.');
     } else {
@@ -1638,6 +1697,7 @@ class DiscussionManager {
 
   _resetState() {
     this._stopTimer();
+    this._stopReportTimer();
     this._participantColors = {};
     this._participantNames = {};
     this._participantPersonas = {};
