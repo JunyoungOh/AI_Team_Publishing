@@ -113,11 +113,17 @@ async def run_cli_session(
     cwd: str | None = None,
     activity_event_type: str = "dev_activity",
     effort: str | None = None,
+    on_first_assistant: "callable | None" = None,
 ) -> str:
     """CLI subprocess를 실행하고 결과를 반환. rate limit 시 RateLimitError.
 
     cwd: 기본 None(프로젝트 루트). 강화소처럼 사용자 폴더 안에서 실행해야 할 때 지정.
     activity_event_type: 도구 사용 이벤트 WS 타입.
+    on_first_assistant: 첫 'assistant' 스트림 이벤트 수신 시 1회 호출되는 콜백.
+        rate limit이 아님을 확정적으로 판단하는 시점 (rate limit은 보통 result
+        이벤트로 즉시 is_error=True로 오기 때문에 assistant 이벤트가 선행되면
+        실제 호출이 통과한 것). dev_state의 record_success 훅에 쓰인다.
+        콜백 예외는 삼켜서 CLI 흐름을 깨뜨리지 않음.
     """
     from src.utils.claude_code import (
         _register_process,
@@ -154,6 +160,7 @@ async def run_cli_session(
 
     full_text = ""
     tool_count = 0
+    first_assistant_fired = False
     start = time.time()
 
     try:
@@ -168,6 +175,13 @@ async def run_cli_session(
                     continue
 
                 if event.get("type") == "assistant":
+                    if not first_assistant_fired and on_first_assistant is not None:
+                        try:
+                            on_first_assistant()
+                        except Exception as exc:
+                            _logger.warning("on_first_assistant_error",
+                                            error=str(exc)[:200])
+                        first_assistant_fired = True
                     for block in event.get("message", {}).get("content", []):
                         if not isinstance(block, dict):
                             continue

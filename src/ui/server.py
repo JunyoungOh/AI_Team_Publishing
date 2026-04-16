@@ -81,10 +81,21 @@ import json as _json
 
 _USAGE_FILE = Path("/tmp/claude-usage.json")
 
+# ── 활성 개발의뢰 태스크 레지스트리 ─────────────────────────
+# 브라우저 재접속 시 기존 실행 중인 task를 찾아서 stop/manual 같은 시그널을
+# 전달하기 위한 용도. state.json이 있는 세션(최초개발)만 등록된다.
+import asyncio as _asyncio
+_active_dev_tasks: dict[str, _asyncio.Task] = {}
+
 
 @app.get("/api/usage")
 async def get_usage():
-    """Claude Code CLI 구독 사용량 반환 (statusline에서 저장한 JSON)."""
+    """Claude Code CLI 구독 사용량 반환 (statusline에서 저장한 JSON).
+
+    주의: 이 파일은 statusline hook이 쓰는 사이드 파일이라 외부 CLI가
+    돌고 있을 때만 최신. 개발의뢰 모드의 rate limit 자동 재개는 이 파일을
+    신뢰하지 않고 자체 추적(state.json)으로 대기 시간을 계산한다.
+    """
     if not _USAGE_FILE.exists():
         return {"available": False}
     try:
@@ -93,6 +104,54 @@ async def get_usage():
         return data
     except Exception:
         return {"available": False}
+
+
+@app.get("/api/dev-sessions/active")
+async def get_active_dev_sessions(request: Request):
+    """현재 user의 미완료 개발 세션 목록 (최초개발 한정).
+
+    반환 예: [{session_id, state, phase, session_number, next_retry_at,
+              backoff_index, guard_remaining, task_preview, updated_at}, ...]
+    state='done'|'stopped'|'error' 인 세션은 포함하지 않음.
+    """
+    import time as _time
+
+    from src.upgrade.dev_state import (
+        GUARD_MAX_RETRIES,
+        GUARD_WINDOW_SEC,
+        scan_all_states,
+    )
+
+    user = None
+    if _membership_enabled():
+        token = request.cookies.get("hq_token", "")
+        user = verify_token(token) if token else None
+        if not user:
+            return JSONResponse({"sessions": []}, status_code=401)
+    user_id = user["sub"] if user else ""
+
+    now_ts = _time.time()
+    active = []
+    for state in scan_all_states():
+        if _membership_enabled() and state.user_id and state.user_id != user_id:
+            continue
+        if state.state in ("done", "stopped", "error"):
+            continue
+        recent = sum(1 for e in state.rate_limit_history
+                     if now_ts - e.at < GUARD_WINDOW_SEC)
+        active.append({
+            "session_id": state.session_id,
+            "state": state.state,
+            "phase": state.phase,
+            "session_number": state.session_number,
+            "next_retry_at": int(state.next_retry_at) if state.next_retry_at else None,
+            "backoff_index": state.backoff_index,
+            "guard_remaining": max(0, GUARD_MAX_RETRIES - recent),
+            "task_preview": state.task[:500],
+            "updated_at": state.updated_at,
+        })
+    active.sort(key=lambda s: s["updated_at"], reverse=True)
+    return {"sessions": active}
 
 
 def _membership_enabled() -> bool:
@@ -215,6 +274,21 @@ async def _startup_cleanup():
     # Dandelion expired report cleanup
     from src.ui.routes.foresight import dandelion_cleanup_startup
     await dandelion_cleanup_startup()
+    # 개발의뢰 세션 orphan 정리: 이전 서버가 running/waiting 상태로 죽었을 때
+    # state.json만 남은 세션을 error로 마크 (asyncio.Task는 서버와 함께 사라짐).
+    try:
+        from src.upgrade.dev_state import mark_orphans_as_error
+        orphans = mark_orphans_as_error()
+        if orphans:
+            import logging
+            logging.getLogger(__name__).info(
+                "dev_session_orphan_cleanup: marked=%d", orphans,
+            )
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning(
+            "dev_session_orphan_cleanup_failed: %s", exc,
+        )
     # Start scheduler service for cron-based execution
     try:
         from src.scheduler.service import SchedulerService
@@ -1052,6 +1126,7 @@ async def upgrade_endpoint(ws: WebSocket):
                 await ws.send_json({"type": "dev_started", "data": {"session_id": _session_id}})
 
                 from src.upgrade.dev_runner import run_dev_overtime
+                from src.upgrade.dev_state import trigger_manual_retry
 
                 drain_task = asyncio.create_task(_drain_events())
                 _upgrade_task = asyncio.create_task(
@@ -1064,13 +1139,26 @@ async def upgrade_endpoint(ws: WebSocket):
                         workspace_files=workspace_files,
                     )
                 )
+                # 재접속 시 찾을 수 있도록 글로벌 레지스트리에 등록
+                _active_dev_tasks[_session_id] = _upgrade_task
+
+                def _on_dev_msg(msg):
+                    # 실행 중 들어오는 manual_retry 시그널: rate limit 대기 조기 종료
+                    if msg.get("type") == "manual_retry":
+                        target = (msg.get("data") or {}).get("session_id") or _session_id
+                        if target:
+                            trigger_manual_retry(target)
+
                 try:
                     result = await run_task_with_stop_listener(
-                        ws, _upgrade_task, {"stop_dev"},
+                        ws, _upgrade_task, {"stop_dev"}, on_message=_on_dev_msg,
                     )
                     if result == "stopped":
                         await ws.send_json({"type": "overtime_stopped", "data": {}})
                 except WebSocketDisconnect:
+                    # 최초개발 세션은 브라우저 닫혀도 서버 태스크를 계속 유지
+                    # (state.json + _active_dev_tasks 조합으로 재접속 시 복구 가능).
+                    # 강화소는 상위 except에서 취소됨.
                     raise
                 except asyncio.CancelledError:
                     pass
@@ -1082,6 +1170,9 @@ async def upgrade_endpoint(ws: WebSocket):
                     except Exception:
                         pass
                 finally:
+                    # 태스크가 종료됐으면 레지스트리에서 제거
+                    if _upgrade_task.done():
+                        _active_dev_tasks.pop(_session_id, None)
                     await asyncio.sleep(0.5)
                     q = get_mode_event_queue(_session_id)
                     while not q.empty():
@@ -1095,14 +1186,140 @@ async def upgrade_endpoint(ws: WebSocket):
                     except asyncio.CancelledError:
                         pass
 
+            elif msg_type == "observe_dev":
+                # 브라우저 재접속 시 기존 실행 중인 개발 세션의 라이브 이벤트를 붙여달라는 요청.
+                data = msg.get("data", {})
+                target_sid = (data.get("session_id") or "").strip()
+                if not target_sid:
+                    continue
+
+                from src.upgrade.dev_state import (
+                    GUARD_MAX_RETRIES,
+                    GUARD_WINDOW_SEC,
+                    DevState as _DS,
+                    trigger_manual_retry as _trigger_mr,
+                )
+                import time as _time
+
+                state_path = _DS.path_for(target_sid)
+                if not state_path.exists():
+                    await ws.send_json({"type": "error", "data": {
+                        "message": "세션을 찾을 수 없어요."
+                    }})
+                    continue
+
+                try:
+                    loaded_state = _DS.load(state_path)
+                except Exception:
+                    await ws.send_json({"type": "error", "data": {
+                        "message": "세션 상태 파일이 손상됐어요."
+                    }})
+                    continue
+
+                if _membership_enabled() and loaded_state.user_id and loaded_state.user_id != user_id:
+                    await ws.send_json({"type": "error", "data": {
+                        "message": "이 세션에 접근할 권한이 없어요."
+                    }})
+                    continue
+
+                _session_id = target_sid
+                now_ts = _time.time()
+                recent = sum(1 for e in loaded_state.rate_limit_history
+                             if now_ts - e.at < GUARD_WINDOW_SEC)
+
+                # 현재 state snapshot을 UI에 주입 — 카운트다운/Phase bar 복원용
+                await ws.send_json({"type": "dev_session_restore", "data": {
+                    "session_id": target_sid,
+                    "state": loaded_state.state,
+                    "phase": loaded_state.phase,
+                    "session_number": loaded_state.session_number,
+                    "next_retry_at": int(loaded_state.next_retry_at) if loaded_state.next_retry_at else None,
+                    "backoff_index": loaded_state.backoff_index,
+                    "guard_remaining": max(0, GUARD_MAX_RETRIES - recent),
+                    "task_preview": loaded_state.task[:500],
+                    "dev_complete": loaded_state.dev_complete,
+                }})
+
+                # 서버 태스크가 아직 돌고 있으면 그것을 await, 아니면 drain만.
+                existing_task = _active_dev_tasks.get(target_sid)
+                drain_task = asyncio.create_task(_drain_events())
+
+                def _on_obs_msg(msg):
+                    if msg.get("type") == "manual_retry":
+                        _trigger_mr(target_sid)
+
+                try:
+                    if existing_task is not None and not existing_task.done():
+                        _upgrade_task = existing_task
+                        result = await run_task_with_stop_listener(
+                            ws, existing_task, {"stop_dev"}, on_message=_on_obs_msg,
+                        )
+                        if result == "stopped":
+                            await ws.send_json({"type": "overtime_stopped", "data": {}})
+                    else:
+                        # 태스크 없음 (서버 재시작 등). state.json만 존재.
+                        # stop_dev 받으면 state='stopped'로만 마크, 그 외 메시지는 on_msg로 처리.
+                        async def _listen_stop_only():
+                            while True:
+                                m = await ws.receive_json()
+                                mtype = m.get("type")
+                                if mtype == "stop_dev":
+                                    loaded_state.state = "stopped"
+                                    loaded_state.error_reason = "user_stopped_no_task"
+                                    loaded_state.save(state_path)
+                                    await ws.send_json({"type": "overtime_stopped", "data": {}})
+                                    return
+                                if mtype == "manual_retry":
+                                    # 태스크가 없으니 트리거해도 아무도 안 깨어남.
+                                    # 알려주기만 하고 스킵.
+                                    await ws.send_json({"type": "error", "data": {
+                                        "message": "진행 중인 태스크가 없어서 재시도할 수 없어요 (서버 재시작됐을 수 있어요)."
+                                    }})
+                        await _listen_stop_only()
+                except WebSocketDisconnect:
+                    # 재접속도 그냥 끊기면 그만 — 상위에서 task cancel은 안 함.
+                    raise
+                finally:
+                    if existing_task is not None and existing_task.done():
+                        _active_dev_tasks.pop(target_sid, None)
+                    await asyncio.sleep(0.5)
+                    q = get_mode_event_queue(target_sid)
+                    while not q.empty():
+                        try:
+                            await ws.send_json(q.get_nowait())
+                        except Exception:
+                            break
+                    drain_task.cancel()
+                    try:
+                        await drain_task
+                    except asyncio.CancelledError:
+                        pass
+
             elif msg_type == "stop_dev":
-                if _upgrade_task and not _upgrade_task.done():
-                    _upgrade_task.cancel()
+                # 로컬 _upgrade_task가 있으면 직접, 없으면 글로벌 레지스트리에서 찾음.
+                target_task = _upgrade_task
+                if target_task is None or target_task.done():
+                    target_task = _active_dev_tasks.get(_session_id) if _session_id else None
+                if target_task and not target_task.done():
+                    target_task.cancel()
                     await ws.send_json({"type": "overtime_stopped", "data": {}})
 
+            elif msg_type == "manual_retry":
+                # start_dev 흐름 바깥에서 직접 들어온 경우 (드문 케이스지만 안전망).
+                from src.upgrade.dev_state import trigger_manual_retry as _tmr
+                target_sid = (msg.get("data") or {}).get("session_id") or _session_id
+                if target_sid:
+                    _tmr(target_sid)
+
     except WebSocketDisconnect:
+        # 최초개발(state.json이 있는 세션)은 브라우저 닫혀도 서버 태스크를 유지한다.
+        # 재접속 시 observe_dev로 다시 붙고, 그 사이엔 asyncio.Task가 계속 동작.
+        # 강화소/기타 legacy flow는 기존대로 취소 (state 저장 없음 → 재개 불가).
         if _upgrade_task and not _upgrade_task.done():
-            _upgrade_task.cancel()
+            from src.upgrade.dev_state import DevState as _DS
+            is_state_aware = bool(_session_id) and _DS.path_for(_session_id).exists()
+            if not is_state_aware:
+                _upgrade_task.cancel()
     except Exception as e:
         import logging
         logging.getLogger(__name__).error("upgrade_crash: %s", e, exc_info=True)
@@ -1565,6 +1782,19 @@ async def report_main(session_id: str):
 
 
 app.mount("/reports", StaticFiles(directory=str(_REPORTS_DIR), html=False), name="reports")
+
+
+@app.get("/apps/{session_id}/guide")
+async def dev_app_guide(session_id: str):
+    """Serve the generated app's guide.html (located inside the app folder)."""
+    base = (_DATA_DIR / "workspace" / "overtime" / "output").resolve()
+    app_dir = (base / session_id / "app").resolve()
+    if not str(app_dir).startswith(str(base)):
+        return HTMLResponse("<p>Access denied</p>", status_code=403)
+    guide = app_dir / "guide.html"
+    if not guide.exists():
+        return HTMLResponse("<p>Guide not found</p>", status_code=404)
+    return FileResponse(guide, media_type="text/html")
 
 
 # ── Advisory endpoint (separate from main pipeline) ──

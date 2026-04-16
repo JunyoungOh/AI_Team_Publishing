@@ -51,6 +51,13 @@ class DartManager {
         display: flex; align-items: center; gap: 6px;
       }
       .dart-title .dart-title-dim { color: var(--dim); font-weight: 500; font-size: 0.85em; }
+      .dart-title-hint {
+        font-size: 0.78em; font-weight: 500; color: var(--dim);
+        padding: 3px 8px; border-radius: 6px;
+        background: rgba(250, 204, 21, 0.08);
+        border: 1px solid rgba(250, 204, 21, 0.25);
+        line-height: 1.35;
+      }
       .dart-mode-toggle {
         display: flex; background: var(--overlay-2); border-radius: 8px;
         padding: 2px; height: 28px;
@@ -428,6 +435,11 @@ class DartManager {
     titleDim.textContent = '— 전자공시시스템 원문 기반';
     title.appendChild(titleDim);
     toolbar.appendChild(title);
+
+    const hint = document.createElement('span');
+    hint.className = 'dart-title-hint';
+    hint.textContent = '💡 빅데이터를 읽어오는 기능이므로 AI가 집중할 수 있도록 다른 모드와 함께 사용하기보단 단독 사용을 권장합니다.';
+    toolbar.appendChild(hint);
 
     const effortToggle = this._buildToggle([
       ['flash', '⚡ Flash'],

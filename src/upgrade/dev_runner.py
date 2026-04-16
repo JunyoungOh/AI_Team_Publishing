@@ -26,6 +26,15 @@ from src.upgrade.dev_prompts import (
     build_handoff_prompt,
     build_report_prompt,
 )
+from src.upgrade.dev_state import (
+    DevState,
+    GuardTriggeredError,
+    check_guard,
+    cleanup_session,
+    get_lock,
+    guard_remaining,
+    wait_or_manual,
+)
 from src.utils.cli_session import (
     RateLimitError,
     _get_rate_limit_wait,
@@ -51,6 +60,87 @@ def _emit(session_id: str, phase: str, action: str, *, event_type: str = "dev_pr
         "type": event_type,
         "data": {"phase": phase, "action": action, **kwargs},
     })
+
+
+async def _run_with_state_retry(
+    state: DevState,
+    system_prompt: str,
+    user_prompt: str,
+    tools: list[str],
+    phase: str,
+    model: str = "sonnet",
+    max_turns: int = 60,
+    timeout: int = 420,
+    cwd: str | None = None,
+    activity_event_type: str = "overtime_activity",
+    emit_event_type: str = "dev_progress",
+    effort: str | None = None,
+) -> str:
+    """state.json 기반 CLI 실행 + 자동 재개.
+
+    - 가드(6h/5회) 발동 시 GuardTriggeredError
+    - rate limit: state.record_rate_limit으로 대기 시간 계산 + wait_or_manual
+    - 수동 "지금 시도" 버튼은 같은 session_id의 asyncio.Event를 set해서
+      timer를 조기 만료시킨다 (dev_state.trigger_manual_retry에서)
+    """
+    state.phase = phase
+
+    def _on_success():
+        state.record_success(time.time())
+        state.save()
+
+    while True:
+        now_ts = time.time()
+
+        if check_guard(state, now_ts):
+            state.state = "stopped"
+            state.error_reason = "guard_triggered"
+            state.save()
+            _emit(state.session_id, phase, "guard_triggered",
+                  event_type=emit_event_type,
+                  message="6시간 내 5회 재시도 실패 — 자동 중지. Claude 사용량 상태를 확인해주세요.")
+            raise GuardTriggeredError()
+
+        state.state = "running"
+        state.save()
+
+        try:
+            return await _run_cli_session(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                tools=tools,
+                session_id=state.session_id,
+                model=model,
+                max_turns=max_turns,
+                timeout=timeout,
+                cwd=cwd,
+                activity_event_type=activity_event_type,
+                effort=effort,
+                on_first_assistant=_on_success,
+            )
+        except RateLimitError:
+            now_ts = time.time()
+            wait_sec = state.record_rate_limit(now_ts)
+            state.save()
+
+            remaining = guard_remaining(state, now_ts)
+            wait_min = max(1, wait_sec // 60)
+            _emit(state.session_id, phase, "rate_limited",
+                  event_type=emit_event_type,
+                  wait_seconds=wait_sec,
+                  next_retry_at=int(state.next_retry_at or 0),
+                  retry_count=state.backoff_index,
+                  guard_remaining=remaining,
+                  message=f"사용량 한도 도달 — 약 {wait_min}분 후 자동 재개 (남은 시도 {remaining}회)")
+            _logger.warning("dev_rate_limited",
+                            phase=phase, session=state.session_id,
+                            wait_s=wait_sec, retry=state.backoff_index)
+
+            trigger = await wait_or_manual(state.session_id, wait_sec)
+            _emit(state.session_id, phase, "retrying",
+                  event_type=emit_event_type,
+                  trigger=trigger,
+                  message="재개 시도 중" + (" (수동 트리거)" if trigger == "manual" else ""))
 
 
 async def _run_with_rate_limit_retry(
@@ -199,27 +289,90 @@ async def run_dev_overtime(
     기준 절대경로로 변환해서 dev system prompt에 주입한다. CLI는 Read 도구로
     해당 경로의 파일을 직접 열어본다.
 
+    state.json에 세션 메타데이터 + rate limit 추적을 영속화. 사용량 소진 시
+    _run_with_state_retry 안에서 자동 대기 + 재개. 6h 내 5회 실패 시 가드.
+
     NOTE: `overtime_id` 인자는 더 이상 사용되지 않는다 (야근팀 storage 제거됨).
           하위 호환을 위해 시그니처는 유지하지만 무시된다.
     """
-    del overtime_id, user_id  # unused — overtime storage CRUD 제거됨
+    del overtime_id  # unused — overtime storage CRUD 제거됨
     from src.utils.workspace import resolve_selected_paths
-
-    from src.utils.report_paths import build_report_dir
 
     settings = get_settings()
     work_dir = f"data/workspace/{_WORKSPACE_MODE}/output/{session_id}/app"
-    report_dir = str(build_report_dir(task, session_id=session_id))
+    report_dir = work_dir
     Path(work_dir).mkdir(parents=True, exist_ok=True)
 
     file_paths = resolve_selected_paths(_WORKSPACE_MODE, workspace_files or [])
 
-    handoff_context = ""
-    dev_complete = False
+    # ── state.json 초기화: 새 세션이면 만들고, 혹시 존재하면 메타만 갱신 ──
+    state_path = DevState.path_for(session_id, _WORKSPACE_MODE)
+    if state_path.exists():
+        try:
+            state = DevState.load(state_path)
+            # 이어서 시작: 진행 상황 보존, 상태는 running으로 리셋
+            state.state = "running"
+        except Exception as exc:
+            _logger.warning("dev_state_load_failed", error=str(exc)[:200])
+            state = DevState(session_id=session_id, user_id=user_id or "")
+    else:
+        state = DevState(session_id=session_id, user_id=user_id or "")
+    state.task = task
+    state.answers = answers
+    state.workspace_files = workspace_files or []
+    state.work_dir = work_dir
+    state.save(state_path)
+
+    # ── 세션 전체를 락으로 보호: 같은 session_id로 2중 실행 방지 ──
+    session_lock = get_lock(session_id)
+    async with session_lock:
+        try:
+            await _run_dev_inner(
+                state, settings, file_paths, work_dir, report_dir, state_path,
+            )
+        except GuardTriggeredError:
+            # 가드 발동 — state는 이미 stopped로 저장됨
+            pass
+        except asyncio.CancelledError:
+            # 사용자 중지 버튼 → state를 stopped로
+            state.state = "stopped"
+            state.error_reason = "user_stopped"
+            state.save(state_path)
+            raise
+        except Exception as exc:
+            _logger.error("dev_run_fatal", error=str(exc)[:500])
+            state.state = "error"
+            state.error_reason = f"fatal: {type(exc).__name__}: {str(exc)[:200]}"
+            state.save(state_path)
+            raise
+        finally:
+            cleanup_session(session_id)
+
+    return report_dir
+
+
+async def _run_dev_inner(
+    state: DevState,
+    settings,
+    file_paths: list[str],
+    work_dir: str,
+    report_dir: str,
+    state_path: Path,
+) -> None:
+    """run_dev_overtime의 메인 바디. 락 안에서 실행. state 변경은 이 안에서 전부."""
+    session_id = state.session_id
+    task = state.task
+    answers = state.answers
+    handoff_context = state.handoff_context
+    dev_complete = state.dev_complete
 
     # ── 개발 루프 (컨텍스트 한계 시 새 세션으로 이어받기) ──
-    for session_num in range(1, MAX_SESSIONS + 1):
+    start_session = state.session_number + 1 if state.session_number else 1
+    for session_num in range(start_session, MAX_SESSIONS + 1):
         _logger.info("dev_session_start", session=session_num, session_id=session_id)
+        state.session_number = session_num
+        state.phase = "dev"
+        state.save(state_path)
 
         system_prompt = build_dev_system_prompt(
             task=task,
@@ -242,19 +395,20 @@ async def run_dev_overtime(
               session_number=session_num,
               message=f"개발 세션 #{session_num} 시작")
 
-        # 개발 세션 실행
         try:
-            await _run_with_rate_limit_retry(
+            await _run_with_state_retry(
+                state=state,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 tools=_DEV_TOOLS,
-                session_id=session_id,
                 phase="dev",
                 model=settings.worker_model,
                 max_turns=200,
-                timeout=1800,  # 30분
+                timeout=1800,
                 effort=settings.worker_effort,
             )
+        except GuardTriggeredError:
+            raise  # 상위에서 잡아서 state=stopped 처리 완료됨
         except Exception as e:
             _logger.error("dev_session_error", session=session_num, error=str(e))
             _emit(session_id, "dev", "error",
@@ -267,27 +421,33 @@ async def run_dev_overtime(
             progress_content = progress_file.read_text(encoding="utf-8", errors="replace")
             if _COMPLETION_MARKER in progress_content:
                 dev_complete = True
+                state.dev_complete = True
+                state.save(state_path)
                 _emit(session_id, "dev", "complete",
                       message="개발 완료 — 리포트 생성 중")
                 break
             else:
-                # 아직 진행 중 → handoff
                 _emit(session_id, "dev", "handoff",
                       message=f"세션 #{session_num} 종료 — 새 세션으로 이어받기")
-                handoff_context = progress_content[-3000:]  # 뒤에서 3000자
+                handoff_context = progress_content[-3000:]
+                state.handoff_context = handoff_context
+                state.save(state_path)
                 _logger.info("dev_handoff", session=session_num,
                              progress_len=len(progress_content))
         else:
-            # PROGRESS.md도 없으면 실패 가능성
             _emit(session_id, "dev", "handoff",
                   message=f"세션 #{session_num} — 진행 파일 없음, 재시도")
             handoff_context = ""
+            state.handoff_context = ""
+            state.save(state_path)
 
     if not dev_complete:
         _emit(session_id, "dev", "max_sessions",
               message=f"최대 세션 수({MAX_SESSIONS})에 도달. 현재까지의 결과로 리포트를 생성합니다.")
 
     # ── 완료 리포트 생성 ──
+    state.phase = "report"
+    state.save(state_path)
     _emit(session_id, "report", "generating",
           message="앱 설명 리포트 + 실행 가이드 생성 중")
 
@@ -296,17 +456,19 @@ async def run_dev_overtime(
     )
 
     try:
-        await _run_with_rate_limit_retry(
+        await _run_with_state_retry(
+            state=state,
             system_prompt=report_system,
             user_prompt=report_user,
             tools=_REPORT_TOOLS,
-            session_id=session_id,
             phase="report",
             model=settings.worker_model,
             max_turns=20,
             timeout=300,
             effort=settings.worker_effort,
         )
+    except GuardTriggeredError:
+        raise
     except Exception as e:
         _logger.error("dev_report_error", error=str(e))
 
@@ -314,7 +476,7 @@ async def run_dev_overtime(
     from src.utils import report_renderer
 
     Path(report_dir).mkdir(parents=True, exist_ok=True)
-    report_file = Path(report_dir) / "results.html"
+    report_file = Path(report_dir) / "guide.html"
     json_path = Path(report_dir) / "report.json"
 
     rendered = False
@@ -377,9 +539,11 @@ async def run_dev_overtime(
               message=f"더블클릭 실행 파일 생성: {run_cmd_path.name}")
 
     _emit(session_id, "report", "complete",
-          report_path=f"/reports/{session_id}",
+          report_path=f"/apps/{session_id}/guide",
           app_dir=work_dir,
           run_command=str(run_cmd_path) if run_cmd_path else None,
           message="리포트 생성 완료")
 
-    return report_dir
+    # 최종 상태 저장 — 재접속 시 이 세션은 '완료됨'으로 표시됨
+    state.state = "done"
+    state.save(state_path)

@@ -57,6 +57,7 @@ async def run_task_with_stop_listener(
     ws,
     task: "asyncio.Task",
     stop_types: set[str],
+    on_message=None,
 ) -> str:
     """Run `task` while concurrently listening for stop messages on `ws`.
 
@@ -66,8 +67,9 @@ async def run_task_with_stop_listener(
     task completes. This helper spawns a parallel listener; if a message with
     `type` in `stop_types` arrives, `task` is cancelled and cleanup runs.
 
-    Non-stop messages received while the task is running are dropped — the
-    frontend is expected to disable other inputs during execution.
+    Non-stop messages are passed to `on_message(msg)` if provided. This lets
+    endpoints handle mid-flight signals like "manual_retry" without stopping
+    the task. Callback exceptions are swallowed so listener can't crash.
 
     Returns:
         "completed" — task finished normally.
@@ -83,6 +85,11 @@ async def run_task_with_stop_listener(
             msg = await ws.receive_json()
             if msg.get("type") in stop_types:
                 return
+            if on_message is not None:
+                try:
+                    on_message(msg)
+                except Exception:
+                    pass
 
     listener = asyncio.create_task(_listen())
 

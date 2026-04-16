@@ -43,6 +43,12 @@ var UpgradeManager = (function () {
   var _devPaused = false;
   var _initialWsPanel = null;  // WorkspacePanel (파일 참고용)
 
+  // Rate limit 대기 패널 상태 (자동 재개 카운트다운)
+  var _rateLimitPanel = null;       // DOM node or null
+  var _rateLimitInterval = null;    // setInterval handle
+  var _manualRetryDebounceAt = 0;   // ms timestamp — 30초 debounce 기준
+  var _activeSessionsChecked = false;  // 탭 첫 마운트 시 한 번만 체크
+
   function _clear(el) {
     while (el && el.firstChild) el.removeChild(el.firstChild);
   }
@@ -89,6 +95,176 @@ var UpgradeManager = (function () {
     _renderUpgradeForm();
 
     _switchSubMode(_subMode);
+
+    // 첫 마운트에서 진행 중인 개발 세션 있는지 확인 — 있으면 재개 카드 표시
+    if (!_activeSessionsChecked) {
+      _activeSessionsChecked = true;
+      _checkActiveDevSessions();
+    }
+  }
+
+  // ──────────────────────────────────────────────
+  // 활성 세션 체크 + 재개 카드 (최초개발 한정)
+  // ──────────────────────────────────────────────
+  function _checkActiveDevSessions() {
+    fetch('/api/dev-sessions/active', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : { sessions: [] }; })
+      .then(function (body) {
+        var sessions = (body && body.sessions) || [];
+        if (sessions.length === 0) return;
+        _renderResumeCard(sessions);
+      })
+      .catch(function () {});
+  }
+
+  function _renderResumeCard(sessions) {
+    // 최초개발 wrap의 맨 위에 카드 삽입 (폼 유지 — 사용자가 "새로 시작" 선택 가능)
+    if (!_initialWrap) return;
+
+    var existing = document.getElementById('dev-resume-card');
+    if (existing) existing.parentNode.removeChild(existing);
+
+    var card = document.createElement('div');
+    card.id = 'dev-resume-card';
+    card.style.cssText = 'margin:0 0 16px 0;padding:14px 16px;background:rgba(56,139,253,0.08);border-left:3px solid var(--blue,#60a5fa);border-radius:6px;';
+
+    var heading = document.createElement('div');
+    heading.style.cssText = 'font-size:14px;font-weight:600;color:var(--text,#e6edf3);margin-bottom:8px;';
+    heading.textContent = '⏸️ 진행 중인 개발 ' + sessions.length + '건';
+    card.appendChild(heading);
+
+    sessions.forEach(function (s) {
+      var row = document.createElement('div');
+      row.style.cssText = 'margin:8px 0;padding:10px;background:rgba(255,255,255,0.04);border-radius:4px;';
+
+      var preview = document.createElement('div');
+      preview.style.cssText = 'font-size:13px;color:var(--text,#e6edf3);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+      preview.textContent = (s.task_preview || '(제목 없음)').slice(0, 120);
+      row.appendChild(preview);
+
+      var meta = document.createElement('div');
+      meta.style.cssText = 'font-size:11px;color:var(--dim,#8b949e);margin-bottom:8px;';
+      var stateLabel = s.state === 'waiting' ? '⏳ 대기 중' :
+                       s.state === 'running' ? '🏃 실행 중' :
+                       s.state === 'pending' ? '대기' : s.state;
+      var metaText = stateLabel + ' · Phase: ' + (s.phase || '-') +
+                     ' · 세션 #' + (s.session_number || 0);
+      if (s.next_retry_at) {
+        var mins = Math.max(0, Math.round((s.next_retry_at - Date.now() / 1000) / 60));
+        metaText += ' · ' + (mins > 0 ? '약 ' + mins + '분 후 재개' : '재시도 예정');
+      }
+      meta.textContent = metaText;
+      row.appendChild(meta);
+
+      var btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex;gap:8px;';
+
+      var resumeBtn = document.createElement('button');
+      resumeBtn.textContent = '▶ 이어보기';
+      resumeBtn.style.cssText = 'padding:6px 12px;background:var(--blue,#388bfd);border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:12px;';
+      resumeBtn.onclick = function () { _resumeDevSession(s.session_id); };
+      btnRow.appendChild(resumeBtn);
+
+      var abandonBtn = document.createElement('button');
+      abandonBtn.textContent = '✕ 포기';
+      abandonBtn.style.cssText = 'padding:6px 12px;background:none;border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:4px;color:var(--dim,#8b949e);cursor:pointer;font-size:12px;';
+      abandonBtn.onclick = function () { _abandonDevSession(s.session_id, row); };
+      btnRow.appendChild(abandonBtn);
+
+      row.appendChild(btnRow);
+      card.appendChild(row);
+    });
+
+    // 맨 위에 삽입
+    if (_initialWrap.firstChild) {
+      _initialWrap.insertBefore(card, _initialWrap.firstChild);
+    } else {
+      _initialWrap.appendChild(card);
+    }
+  }
+
+  function _resumeDevSession(sessionId) {
+    _devSessionId = sessionId;
+    _running = true;
+    _signalRunning(true);
+    _connect();
+
+    _clear(_initialWrap);
+    _renderInitialDevProgress();
+
+    var retries = 0;
+    var send = function () {
+      if (_ws && _ws.readyState === WebSocket.OPEN) {
+        _ws.send(JSON.stringify({
+          type: 'observe_dev',
+          data: { session_id: sessionId },
+        }));
+      } else if (retries < 50) {
+        retries++;
+        setTimeout(send, 100);
+      }
+    };
+    send();
+  }
+
+  function _abandonDevSession(sessionId, rowEl) {
+    if (!confirm('이 세션을 포기합니다. 진행 중이었다면 중지되고, 상태 파일은 보존됩니다. 계속할까요?')) {
+      return;
+    }
+    _connect();
+    var retries = 0;
+    var send = function () {
+      if (_ws && _ws.readyState === WebSocket.OPEN) {
+        _ws.send(JSON.stringify({
+          type: 'observe_dev',
+          data: { session_id: sessionId },
+        }));
+        setTimeout(function () {
+          if (_ws && _ws.readyState === WebSocket.OPEN) {
+            _ws.send(JSON.stringify({ type: 'stop_dev' }));
+          }
+        }, 300);
+      } else if (retries < 50) {
+        retries++;
+        setTimeout(send, 100);
+      }
+    };
+    send();
+    if (rowEl && rowEl.parentNode) rowEl.parentNode.removeChild(rowEl);
+  }
+
+  function _applyDevSessionRestore(data) {
+    _devSessionId = data.session_id;
+    var phase = data.phase || 'dev';
+
+    // Phase bar 복원: clarify는 항상 done, 현재 phase 활성
+    var phases = ['clarify', 'dev', 'report'];
+    phases.forEach(function (p) {
+      var el = document.getElementById('dev-phase-' + p);
+      if (!el) return;
+      var baseLabel = el.textContent.replace(/^[●○✓]\s*/, '');
+      var order = phases.indexOf(p);
+      var currentOrder = phases.indexOf(phase);
+      if (order < currentOrder || (order === currentOrder && data.dev_complete && p !== 'report')) {
+        el.classList.add('done');
+        el.textContent = '✓ ' + baseLabel;
+      } else if (order === currentOrder) {
+        el.classList.add('active');
+        el.textContent = '● ' + baseLabel;
+      }
+    });
+
+    _addDevLog('진행 중이던 세션을 이어서 봅니다 (세션 #' + (data.session_number || 0) + ')',
+               'session_start');
+
+    // waiting 상태이면 카운트다운 패널 즉시 띄움
+    if (data.state === 'waiting' && data.next_retry_at) {
+      _showRateLimitPanel({
+        next_retry_at: data.next_retry_at,
+        retry_count: data.backoff_index || 0,
+        guard_remaining: data.guard_remaining,
+      });
+    }
   }
 
   function _switchSubMode(mode) {
@@ -348,6 +524,9 @@ var UpgradeManager = (function () {
       _showDevQuestions(data.questions, data.session_id);
     } else if (type === 'dev_started') {
       _addDevLog('개발이 시작되었습니다', 'session_start');
+    } else if (type === 'dev_session_restore') {
+      // observe_dev 응답 — 재접속한 세션의 상태를 UI로 복원
+      _applyDevSessionRestore(data);
     } else if (type === 'dev_progress') {
       _handleDevProgress(data);
     } else if (type === 'overtime_activity') {
@@ -977,6 +1156,27 @@ var UpgradeManager = (function () {
     var phase = data.phase;
     var action = data.action;
 
+    // ── Rate limit 자동 재개 흐름 ──
+    if (action === 'rate_limited') {
+      _showRateLimitPanel(data);
+      if (data.message) _addDevLog(data.message, 'rate_limited');
+      return;
+    }
+    if (action === 'retrying') {
+      _hideRateLimitPanel();
+      var trigger = data.trigger === 'manual' ? '수동 재시도' : '자동 재시도';
+      _addDevLog(data.message || trigger, 'retrying');
+      return;
+    }
+    if (action === 'guard_triggered') {
+      _hideRateLimitPanel();
+      _addDevLog(data.message || '자동 재개 중지', 'error');
+      var stopBtn = document.getElementById('dev-stop-btn');
+      if (stopBtn) stopBtn.style.display = 'none';
+      return;
+    }
+
+    // ── 일반 Phase bar 업데이트 ──
     var phaseEl = document.getElementById('dev-phase-' + phase);
     if (phaseEl) {
       if (action === 'complete') {
@@ -1000,6 +1200,113 @@ var UpgradeManager = (function () {
     if (phase === 'report' && action === 'complete' && data.report_path) {
       _addDevReportLink(data.report_path, data.app_dir);
     }
+  }
+
+  // ──────────────────────────────────────────────
+  // Rate limit 카운트다운 패널 + 수동 재시도 버튼
+  // ──────────────────────────────────────────────
+  function _showRateLimitPanel(data) {
+    _hideRateLimitPanel();  // 기존 패널 있으면 교체
+
+    var wrap = document.getElementById('dev-progress');
+    if (!wrap) return;
+
+    var panel = document.createElement('div');
+    panel.id = 'dev-rate-limit-panel';
+    panel.style.cssText = 'margin:12px 0;padding:14px 16px;background:rgba(240,136,62,0.08);border-left:3px solid var(--orange,#f0883e);border-radius:6px;';
+
+    var heading = document.createElement('div');
+    heading.style.cssText = 'font-size:13px;font-weight:600;color:var(--text,#e6edf3);margin-bottom:6px;';
+    heading.textContent = '⏳ 사용량 한도 도달 — 자동 재개 대기 중';
+    panel.appendChild(heading);
+
+    var countdownEl = document.createElement('div');
+    countdownEl.id = 'dev-rate-limit-countdown';
+    countdownEl.style.cssText = 'font-size:20px;font-weight:700;color:var(--orange,#f0883e);font-variant-numeric:tabular-nums;margin:6px 0;';
+    panel.appendChild(countdownEl);
+
+    var meta = document.createElement('div');
+    meta.style.cssText = 'font-size:12px;color:var(--dim,#8b949e);';
+    var retryCount = data.retry_count || 0;
+    var guardRemaining = typeof data.guard_remaining === 'number' ? data.guard_remaining : '-';
+    meta.textContent = '재시도 ' + retryCount + '회 누적 · 6시간 내 ' + guardRemaining + '회 더 가능';
+    panel.appendChild(meta);
+
+    // 지금 시도 버튼
+    var btnRow = document.createElement('div');
+    btnRow.style.cssText = 'margin-top:10px;';
+
+    var manualBtn = document.createElement('button');
+    manualBtn.id = 'dev-manual-retry-btn';
+    manualBtn.textContent = '🔄 지금 시도';
+    manualBtn.style.cssText = 'padding:8px 16px;background:var(--orange,#f0883e);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:13px;font-weight:600;';
+    manualBtn.onclick = function () { _handleManualRetry(manualBtn); };
+    btnRow.appendChild(manualBtn);
+
+    panel.appendChild(btnRow);
+
+    // Phase bar와 Stop 버튼 다음, Log 영역 위에 삽입
+    var logArea = document.getElementById('dev-log');
+    if (logArea) {
+      wrap.insertBefore(panel, logArea);
+    } else {
+      wrap.appendChild(panel);
+    }
+
+    _rateLimitPanel = panel;
+
+    // 카운트다운 시작
+    var nextAt = data.next_retry_at || 0;  // unix seconds
+    _updateRateLimitCountdown(nextAt);
+    _rateLimitInterval = setInterval(function () {
+      _updateRateLimitCountdown(nextAt);
+    }, 1000);
+  }
+
+  function _updateRateLimitCountdown(nextAt) {
+    var el = document.getElementById('dev-rate-limit-countdown');
+    if (!el) return;
+    var remaining = Math.max(0, Math.round(nextAt - Date.now() / 1000));
+    var mm = Math.floor(remaining / 60);
+    var ss = remaining % 60;
+    var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+    el.textContent = pad(mm) + ':' + pad(ss) + (remaining === 0 ? '  (재시도 예정)' : '');
+  }
+
+  function _hideRateLimitPanel() {
+    if (_rateLimitInterval) {
+      clearInterval(_rateLimitInterval);
+      _rateLimitInterval = null;
+    }
+    if (_rateLimitPanel && _rateLimitPanel.parentNode) {
+      _rateLimitPanel.parentNode.removeChild(_rateLimitPanel);
+    }
+    _rateLimitPanel = null;
+  }
+
+  function _handleManualRetry(btn) {
+    var now = Date.now();
+    if (now - _manualRetryDebounceAt < 30_000) {
+      // 30초 debounce — 전송 안 함
+      return;
+    }
+    _manualRetryDebounceAt = now;
+    if (_ws && _ws.readyState === WebSocket.OPEN) {
+      _ws.send(JSON.stringify({
+        type: 'manual_retry',
+        data: { session_id: _devSessionId },
+      }));
+    }
+    // UI: 버튼 비활성 + 30초 후 재활성
+    btn.disabled = true;
+    var origText = btn.textContent;
+    btn.textContent = '⏱ 방금 시도했어요 (30초)';
+    setTimeout(function () {
+      if (btn && btn.parentNode) {
+        btn.disabled = false;
+        btn.textContent = origText;
+      }
+    }, 30_000);
   }
 
   function _updateDevToolStatus(label, count, detail) {
@@ -1049,6 +1356,7 @@ var UpgradeManager = (function () {
   }
 
   function _addDevReportLink(reportPath, appDir) {
+    _hideRateLimitPanel();  // 완료 시 대기 패널 정리
     var logArea = document.getElementById('dev-log');
     if (!logArea) return;
 
@@ -1059,7 +1367,7 @@ var UpgradeManager = (function () {
     reportBtn.className = 'ot-start-btn';
     reportBtn.style.width = 'auto';
     reportBtn.textContent = '📄 리포트 + 실행 가이드 보기';
-    reportBtn.onclick = function () { window.open(reportPath + '/results.html', '_blank'); };
+    reportBtn.onclick = function () { window.open(reportPath, '_blank'); };
     linkWrap.appendChild(reportBtn);
 
     if (appDir) {
@@ -1103,6 +1411,7 @@ var UpgradeManager = (function () {
     if (_ws && _ws.readyState === WebSocket.OPEN) {
       _ws.send(JSON.stringify({ type: 'stop_dev' }));
     }
+    _hideRateLimitPanel();  // 대기 중이었다면 카운트다운 정리
     _addDevLog('중단 요청됨', 'rate_limited');
     var stopBtn = document.getElementById('dev-stop-btn');
     if (stopBtn) stopBtn.style.display = 'none';
