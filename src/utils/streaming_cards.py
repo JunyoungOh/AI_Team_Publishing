@@ -21,6 +21,10 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
+from src.utils.logging import get_logger
+
+_logger = get_logger(agent_id="streaming_cards")
+
 # ── Constants ─────────────────────────────────────────────
 
 # UI에 노출하지 않을 내부 도구 (card-event-handler.js의 _HIDDEN_TOOLS와 동기화)
@@ -321,6 +325,30 @@ async def handle_user_block(
             content_length = total
 
     if is_error:
+        # content에서 실패 원인 프리뷰를 뽑아 서버 로그에 기록한다.
+        # UI 카드는 친절 라벨만 유지 (원인 노출은 진단자 몫).
+        # content는 str 또는 list[dict|str] 형태 둘 다 가능하며, 위의 content_length
+        # 계산 블록은 is_error=False 경로에서만 돌기 때문에 여기서 별도로 파싱한다.
+        preview = ""
+        if isinstance(content, str):
+            preview = content
+        elif isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    parts.append(str(item.get("text", "")))
+                elif isinstance(item, str):
+                    parts.append(item)
+            preview = "".join(parts)
+        preview = " ".join(preview.split())[:300]  # 개행·중복공백 정규화 + 상한
+
+        _logger.warning(
+            "tool_failed",
+            tool=tool_name or "unknown",
+            tool_use_id=tool_use_id,
+            preview=preview,
+        )
+
         label = f"⚠️ {tool_name or '도구'} 실패" if tool_name else "⚠️ 도구 실패"
         await emitter.emit({
             "type": "activity",

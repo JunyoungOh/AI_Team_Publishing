@@ -45,7 +45,18 @@ _logger = get_logger(agent_id="single_session")
 _SESSION_TOOLS = [
     "WebSearch", "WebFetch", "Read", "Write",
     "Bash", "Glob", "Grep", "Agent",
+    # firecrawl-mcp는 scrape 외에도 search/map/extract를 노출한다.
+    # 모델이 어느 쪽을 고를지 모르므로 주요 4개를 화이트리스트에 모두 올린다.
+    # (browser_*/agent 계열은 의존성 크고 사용 빈도 낮아 제외.)
     "mcp__firecrawl__firecrawl_scrape",
+    "mcp__firecrawl__firecrawl_search",
+    "mcp__firecrawl__firecrawl_map",
+    "mcp__firecrawl__firecrawl_extract",
+    # github-mcp는 R/O 도구군만 허용 — create_pr/write 계열은 제외해 실수 방지.
+    "mcp__github__search_code",
+    "mcp__github__search_repositories",
+    "mcp__github__search_users",
+    "mcp__github__get_file_contents",
 ]
 
 # finalize retry 단계는 네트워크 호출 없이 텍스트 정리만 하면 되므로
