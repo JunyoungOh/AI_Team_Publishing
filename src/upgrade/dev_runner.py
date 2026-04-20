@@ -41,6 +41,7 @@ from src.utils.cli_session import (
     _run_cli_session,
 )
 from src.utils.logging import get_logger
+from src.utils.notifier import notify_completion
 
 _logger = get_logger(agent_id="dev_runner")
 
@@ -323,6 +324,8 @@ async def run_dev_overtime(
     state.work_dir = work_dir
     state.save(state_path)
 
+    started = time.time()
+
     # ── 세션 전체를 락으로 보호: 같은 session_id로 2중 실행 방지 ──
     session_lock = get_lock(session_id)
     async with session_lock:
@@ -347,6 +350,35 @@ async def run_dev_overtime(
             raise
         finally:
             cleanup_session(session_id)
+
+    # 사용자 취소 외 모든 종료 경로에 대해 알림 (done / stopped / error).
+    # 취소는 위에서 raise로 빠져나가므로 여기 도달하지 않음.
+    duration = round(time.time() - started, 2)
+    task_title = (task or "개발의뢰").strip().splitlines()[0][:80]
+    if state.state == "done":
+        await notify_completion(
+            kind="dev",
+            title=task_title,
+            summary="리포트 생성 완료",
+            duration_seconds=duration,
+            status="success",
+        )
+    elif state.state == "stopped":
+        await notify_completion(
+            kind="dev",
+            title=task_title,
+            summary=f"중단됨: {state.error_reason or '사용량 가드'}",
+            duration_seconds=duration,
+            status="failure",
+        )
+    elif state.state == "error":
+        await notify_completion(
+            kind="dev",
+            title=task_title,
+            summary=f"오류: {state.error_reason or '알 수 없음'}",
+            duration_seconds=duration,
+            status="failure",
+        )
 
     return report_dir
 

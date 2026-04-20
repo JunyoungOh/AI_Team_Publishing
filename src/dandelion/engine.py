@@ -6,9 +6,12 @@ import json
 import logging
 import re
 
+import time
+
 from src.config.settings import get_settings
 from src.utils.bridge_factory import get_bridge
 from src.utils.guards import safe_gather
+from src.utils.notifier import notify_completion
 from src.dandelion.schemas import (
     DandelionTree, Theme, ThemeAssignment, Seed, THEME_COLORS,
 )
@@ -76,6 +79,8 @@ class DandelionEngine:
         from datetime import datetime
 
         settings = get_settings()
+        started = time.time()
+        title = (query or "미래상상").strip().splitlines()[0][:80]
 
         # Stage 1: Theme decision (Sonnet, no tools)
         await self._progress(1, "테마 결정 중...")
@@ -152,6 +157,13 @@ class DandelionEngine:
         )
 
         await self._ws.send_json({"type": "complete"})
+        await notify_completion(
+            kind="foresight",
+            title=title,
+            summary=f"테마 {len(assignment.themes)}개 · 상상 {len(all_seeds)}개 생성",
+            duration_seconds=round(time.time() - started, 2),
+            status="success",
+        )
         return tree
 
     async def _run_theme_session(

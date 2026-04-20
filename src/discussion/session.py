@@ -20,6 +20,7 @@ from src.discussion.config import DiscussionConfig, Participant, HumanParticipan
 from src.discussion.graph import build_discussion_pipeline
 from src.discussion.state import DiscussionState
 from src.utils.claude_code import get_pids_by_session, cleanup_specific_pids, set_session_tag
+from src.utils.notifier import notify_completion
 
 
 class DiscussionSession:
@@ -222,6 +223,8 @@ class DiscussionSession:
         }
 
         cancelled_mid_stream = False
+        error_reason: str | None = None
+        disc_started = time.time()
         try:
             app = build_discussion_pipeline(checkpointer=checkpointer)
             _log.info("discussion_graph_compiled: session=%s", self._session_id)
@@ -248,6 +251,7 @@ class DiscussionSession:
             self._kill_session_subprocesses()
         except Exception as exc:
             cancelled_mid_stream = True
+            error_reason = f"{type(exc).__name__}: {str(exc)[:200]}"
             _log.error("discussion_graph_error: %s", exc, exc_info=True)
             await self._send({
                 "type": "error",
@@ -262,6 +266,23 @@ class DiscussionSession:
                     "cancelled": cancelled_mid_stream,
                 },
             })
+            # 사용자 중단은 무시, 오류와 정상 완료만 알림.
+            if error_reason is not None:
+                await notify_completion(
+                    kind="discussion",
+                    title=(config.topic or "토론")[:80],
+                    summary=f"오류: {error_reason}",
+                    duration_seconds=round(time.time() - disc_started, 2),
+                    status="failure",
+                )
+            elif not cancelled_mid_stream:
+                await notify_completion(
+                    kind="discussion",
+                    title=(config.topic or "토론")[:80],
+                    summary=f"참여자 {len(config.participants)}명 · 최종 리포트 생성",
+                    duration_seconds=round(time.time() - disc_started, 2),
+                    status="success",
+                )
             # Clean up checkpointer (with timeout to prevent hang)
             if _checkpointer_ctx is not None:
                 try:

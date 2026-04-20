@@ -222,6 +222,12 @@ class Settings(BaseSettings):
     langchain_api_key: str = ""
     langchain_project: str = "enterprise-agent"
 
+    # Telegram 알림 (완료 이벤트를 봇으로 전송 — 싱글유저 로컬 가정)
+    telegram_bot_token: str = ""           # BotFather에서 발급받은 봇 토큰
+    telegram_chat_id: str = ""             # getUpdates로 확인한 본인 chat_id
+    telegram_notify_enabled: bool = True   # 통합 on/off (토큰이 비었으면 자동 off)
+    telegram_request_timeout: int = 5      # sendMessage HTTP 타임아웃 (짧게 — fire-and-forget)
+
     # Scheduler
     scheduler_db_path: str = "data/scheduler.db"
     checkpoint_db_path: str = "data/checkpoints.db"

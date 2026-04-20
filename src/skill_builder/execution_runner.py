@@ -26,6 +26,7 @@ from src.skill_builder.skill_loader import (
     IsolationMode,
     load_skill_for_execution,
 )
+from src.utils.notifier import notify_completion
 
 
 _BUILTIN_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
@@ -147,6 +148,13 @@ async def run_skill(
             runs_root=runs_root,
         )
         on_event({"action": "error", "message": f"스킬 로드 실패: {e}"})
+        await notify_completion(
+            kind="skill",
+            title=slug,
+            summary=f"스킬 로드 실패: {e}",
+            duration_seconds=record.duration_seconds,
+            status="failure",
+        )
         return record
 
     extra_builtins = _detect_required_builtins(ctx.skill_body)
@@ -187,7 +195,7 @@ async def run_skill(
             effort=get_settings().worker_effort,
         )
     except Exception as e:
-        return save_run(
+        record = save_run(
             slug=slug,
             user_input=user_input,
             result_text="",
@@ -197,9 +205,17 @@ async def run_skill(
             error_message=str(e),
             runs_root=runs_root,
         )
+        await notify_completion(
+            kind="skill",
+            title=slug,
+            summary=f"실행 중 오류: {e}",
+            duration_seconds=record.duration_seconds,
+            status="failure",
+        )
+        return record
 
     status = "timeout" if timed_out else "completed"
-    return save_run(
+    record = save_run(
         slug=slug,
         user_input=user_input,
         result_text=full_text,
@@ -208,3 +224,11 @@ async def run_skill(
         duration_seconds=round(time.time() - started, 2),
         runs_root=runs_root,
     )
+    await notify_completion(
+        kind="skill",
+        title=slug,
+        summary=f"도구 {tool_count}회 호출" if tool_count else "",
+        duration_seconds=record.duration_seconds,
+        status="timeout" if timed_out else "success",
+    )
+    return record

@@ -22,6 +22,7 @@ from src.config.settings import Settings
 from src.graphs.main_graph import build_pipeline
 from src.models.state import create_initial_state
 from src.scheduler.models import ExecutionRecord, ExecutionStatus, ScheduledJob
+from src.utils.notifier import notify_completion
 from src.utils.tracing import configure_tracing, get_run_config
 
 logger = logging.getLogger(__name__)
@@ -103,7 +104,27 @@ class HeadlessGraphRunner:
                 job.job_id, execution_id, exc,
             )
 
+        await self._notify(job, record)
         return record
+
+    @staticmethod
+    async def _notify(job: ScheduledJob, record: ExecutionRecord) -> None:
+        """스케줄러 완료 알림. 상태별로 성공/실패/타임아웃 구분."""
+        status_map: dict[ExecutionStatus, str] = {
+            ExecutionStatus.COMPLETED: "success",
+            ExecutionStatus.FAILED: "failure",
+            ExecutionStatus.TIMEOUT: "timeout",
+        }
+        status = status_map.get(record.status, "failure")
+        title = (getattr(job, "name", None) or getattr(job, "user_task", "") or job.job_id)[:80]
+        summary = record.error_message or "정기 실행 완료"
+        await notify_completion(
+            kind="scheduler",
+            title=title,
+            summary=summary[:200],
+            duration_seconds=record.duration_seconds,
+            status=status,  # type: ignore[arg-type]
+        )
 
     async def _run_graph(
         self, job: ScheduledJob, record: ExecutionRecord, thread_id: str,
