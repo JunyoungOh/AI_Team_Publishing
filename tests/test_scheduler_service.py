@@ -52,6 +52,54 @@ def test_build_trigger_interval_missing_seconds():
         SchedulerService._build_trigger(config)
 
 
+# ── dow 번역 (APScheduler from_crontab dow 오프바이원 회피) ────────────
+
+
+def test_normalize_cron_dow_single_number():
+    # UNIX cron: 1=월, 2=화 ... 0/7=일
+    assert SchedulerService._normalize_cron_dow("0 11 * * 1") == "0 11 * * mon"
+    assert SchedulerService._normalize_cron_dow("0 11 * * 0") == "0 11 * * sun"
+    assert SchedulerService._normalize_cron_dow("0 11 * * 7") == "0 11 * * sun"
+    assert SchedulerService._normalize_cron_dow("0 11 * * 6") == "0 11 * * sat"
+
+
+def test_normalize_cron_dow_wildcards_and_composites():
+    assert SchedulerService._normalize_cron_dow("30 10 * * *") == "30 10 * * *"
+    assert SchedulerService._normalize_cron_dow("0 9 * * 1-5") == "0 9 * * mon-fri"
+    assert SchedulerService._normalize_cron_dow("0 9 * * 1,3,5") == "0 9 * * mon,wed,fri"
+
+
+def test_normalize_cron_dow_already_named_passthrough():
+    assert SchedulerService._normalize_cron_dow("0 9 * * mon") == "0 9 * * mon"
+    assert SchedulerService._normalize_cron_dow("0 9 * * MON") == "0 9 * * MON"
+
+
+def test_cron_trigger_fires_on_correct_weekday():
+    """Monday 크론 표현이 실제로 월요일에 발화하는지 검증.
+
+    회귀 방지: APScheduler 3.x의 `from_crontab`이 dow 번호(UNIX: 1=월)를
+    자체 인덱싱(0=월)으로 해석하는 오프바이원 버그 때문에, 모든 주간 스케줄이
+    의도한 요일 다음날에 발화했던 과거 결함을 잡아둔다.
+    """
+    from datetime import datetime
+    import pytz
+
+    config = ScheduleConfig(
+        schedule_type=ScheduleType.CRON,
+        cron_expression="0 11 * * 1",  # UNIX cron: 월요일 11:00
+        timezone="Asia/Seoul",
+    )
+    trigger = SchedulerService._build_trigger(config)
+    # 2026-04-19 일요일 기준 다음 발화는 2026-04-20 월요일이어야 한다.
+    kst = pytz.timezone("Asia/Seoul")
+    sunday = kst.localize(datetime(2026, 4, 19))
+    next_fire = trigger.get_next_fire_time(None, sunday)
+    assert next_fire is not None
+    assert next_fire.strftime("%A") == "Monday", (
+        f"expected Monday, got {next_fire.strftime('%A')} ({next_fire.isoformat()})"
+    )
+
+
 # ── Job lifecycle via store ──────────────────────
 
 

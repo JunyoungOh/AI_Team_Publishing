@@ -300,8 +300,16 @@ class SchedulerService:
         if config.schedule_type == ScheduleType.CRON:
             if not config.cron_expression:
                 raise ValueError("Cron schedule requires cron_expression")
+            # APScheduler의 `from_crontab`은 요일 필드(0-7)를 자체 인덱싱
+            # (0=월요일)으로 그대로 저장한다. 그 결과 UNIX 표준 `1`(월)이
+            # `1`(화)로 해석돼 모든 주간 스케줄이 하루씩 밀려 발화된다.
+            # 이름 기반 요일 ("mon","tue",…)은 올바르게 처리되므로, 번호는
+            # 이름으로 변환해서 넘긴다.
+            fixed_expr = SchedulerService._normalize_cron_dow(
+                config.cron_expression,
+            )
             return CronTrigger.from_crontab(
-                config.cron_expression, timezone=config.timezone,
+                fixed_expr, timezone=config.timezone,
             )
         elif config.schedule_type == ScheduleType.INTERVAL:
             if not config.interval_seconds:
@@ -311,6 +319,44 @@ class SchedulerService:
             )
         else:
             raise ValueError(f"Unknown schedule type: {config.schedule_type}")
+
+    _DOW_NAME_BY_NUM = {
+        "0": "sun", "1": "mon", "2": "tue", "3": "wed",
+        "4": "thu", "5": "fri", "6": "sat", "7": "sun",
+    }
+
+    @classmethod
+    def _translate_dow_token(cls, token: str) -> str:
+        """단일 요일 토큰을 번호→이름으로 변환. 이미 이름이면 그대로 반환."""
+        t = token.strip()
+        if not t:
+            return t
+        # 쉼표 리스트: "1,3,5"
+        if "," in t:
+            return ",".join(cls._translate_dow_token(p) for p in t.split(","))
+        # 스텝: "*/2", "1/2"
+        if "/" in t:
+            base, step = t.split("/", 1)
+            return f"{cls._translate_dow_token(base)}/{step}"
+        # 범위: "1-5"
+        if "-" in t:
+            a, b = t.split("-", 1)
+            return f"{cls._translate_dow_token(a)}-{cls._translate_dow_token(b)}"
+        # 와일드카드/물음표
+        if t in ("*", "?"):
+            return t
+        # 단일 번호
+        return cls._DOW_NAME_BY_NUM.get(t, t)
+
+    @classmethod
+    def _normalize_cron_dow(cls, expr: str) -> str:
+        """5-필드 cron 표현의 day-of-week 필드만 이름 기반으로 변환."""
+        parts = expr.strip().split()
+        if len(parts) != 5:
+            # 6-필드(년 포함) 또는 비표준 형식은 그대로 반환
+            return expr
+        parts[4] = cls._translate_dow_token(parts[4])
+        return " ".join(parts)
 
     def _recover_orphaned_executions(self) -> None:
         """Mark any RUNNING executions from previous crash as FAILED."""
