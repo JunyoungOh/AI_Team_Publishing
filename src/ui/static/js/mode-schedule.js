@@ -353,28 +353,10 @@ var ScheduleTeamManager = (function () {
         ' — ' + statusLabel + duration;
       card.appendChild(histEl);
 
-      // 보고서 링크 + 폴더 열기
+      // 폴더 열기
       if (lastRun.report_path) {
         var reportRow = document.createElement('div');
         reportRow.className = 'st-report-row';
-
-        var reportLink = document.createElement('a');
-        reportLink.className = 'st-report-link';
-        reportLink.href = lastRun.report_path;
-        reportLink.target = '_blank';
-        reportLink.textContent = '📄 보고서 보기';
-        reportLink.addEventListener('click', function (e) {
-          e.preventDefault();
-          var url = this.href;
-          fetch(url, { method: 'HEAD' }).then(function (res) {
-            if (res.ok) {
-              window.open(url, '_blank');
-            } else {
-              alert('보고서 파일이 삭제되었습니다.');
-            }
-          });
-        });
-        reportRow.appendChild(reportLink);
 
         var folderBtn = document.createElement('button');
         folderBtn.className = 'st-folder-btn';
